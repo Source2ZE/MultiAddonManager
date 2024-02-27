@@ -1,0 +1,55 @@
+# vim: set sts=2 ts=8 sw=2 tw=99 et ft=python: 
+import os
+
+MMSPlugin.plugin_name = 'multiaddonmanager'
+MMSPlugin.plugin_alias = 'multiaddonmanager'
+
+# Here only one sdk should be available to generate only one executable in the end,
+# as multi-sdk loading isn't supported out of the box by metamod, and would require specifying the full path in the vdf
+# which in the end would ruin the multi-platform (unix, win etc) loading by metamod as it won't be able to append platform specific extension
+# so just fall back to the single binary.
+# Multi-sdk solutions should be manually loaded with a custom plugin loader (examples being sourcemod, stripper:source)
+for sdk_target in MMSPlugin.sdk_targets:
+  sdk = sdk_target.sdk
+  cxx = sdk_target.cxx
+
+  binary = MMSPlugin.HL2Library(builder, cxx, MMSPlugin.plugin_name, sdk)
+
+  target_folder = 'Debug' if builder.options.debug else 'Release'
+
+  if binary.compiler.target.platform == 'linux':
+    binary.compiler.postlink += [
+      os.path.join(builder.sourcePath, 'vendor', 'funchook', 'lib', target_folder, 'libfunchook.a'),
+      os.path.join(builder.sourcePath, 'vendor', 'funchook', 'lib', target_folder, 'libdistorm.a'),
+    ]
+    binary.sources += ['src/utils/plat_unix.cpp']
+  elif binary.compiler.target.platform == 'windows':
+    binary.compiler.postlink += [
+      os.path.join('psapi.lib'),
+      os.path.join(builder.sourcePath, 'vendor', 'funchook', 'lib', target_folder, 'funchook.lib'),
+      os.path.join(builder.sourcePath, 'vendor', 'funchook', 'lib', target_folder, 'distorm.lib')
+    ]
+    binary.sources += ['src/utils/plat_win.cpp']
+
+  binary.sources += [
+    'src/multiaddonmanager.cpp'
+  ]
+  
+  binary.compiler.cxxincludes += [
+    os.path.join(builder.sourcePath, 'src', 'cs2_sdk'),
+    os.path.join(builder.sourcePath, 'src', 'utils'),
+    os.path.join(builder.sourcePath, 'vendor', 'funchook', 'include'),
+  ]
+
+  protoc_builder = builder.tools.Protoc(protoc = sdk_target.protoc, sources = [
+    os.path.join(sdk['path'], 'common', 'network_connection.proto'),
+    os.path.join(sdk['path'], 'common', 'networkbasetypes.proto')
+  ])
+  protoc_builder.protoc.includes += [
+    os.path.join(sdk['path'], 'common')
+  ]
+
+  binary.custom = [protoc_builder]
+
+  nodes = builder.Add(binary)
+  MMSPlugin.binaries += [nodes]
