@@ -27,7 +27,8 @@ for sdk_target in MMSPlugin.sdk_targets:
     binary.compiler.postlink += [
       os.path.join('psapi.lib'),
       os.path.join(builder.sourcePath, 'vendor', 'funchook', 'lib', target_folder, 'funchook.lib'),
-      os.path.join(builder.sourcePath, 'vendor', 'funchook', 'lib', target_folder, 'distorm.lib')
+      os.path.join(builder.sourcePath, 'vendor', 'funchook', 'lib', target_folder, 'distorm.lib'),
+      os.path.join(sdk['path'], 'lib', 'public', 'win64', 'steam_api64.lib')
     ]
     binary.sources += ['src/utils/plat_win.cpp']
 

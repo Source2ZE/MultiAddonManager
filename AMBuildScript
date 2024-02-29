@@ -151,6 +151,7 @@ class MMSPluginConfig(object):
         '-fno-strict-aliasing',
         '-Wall',
         '-Werror',
+        '-Wno-parentheses',
         '-Wno-uninitialized',
         '-Wno-unused',
         '-Wno-switch',

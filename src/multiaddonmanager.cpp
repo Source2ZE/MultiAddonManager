@@ -26,6 +26,8 @@
 #include "networksystem/inetworkserializer.h"
 #include "serversideclient.h"
 #include "funchook.h"
+#include "filesystem.h"
+#include "steam/steam_gameserver.h"
 #include <string>
 #include "iserver.h"
 
@@ -39,7 +41,7 @@ void Message(const char *msg, ...)
 	char buf[1024] = {};
 	V_vsnprintf(buf, sizeof(buf) - 1, msg, args);
 
-	ConColorMsg(Color(0, 200, 255, 255), "[MultiAddonManager] %s", buf);
+	ConColorMsg(Color(0, 255, 200), "[MultiAddonManager] %s", buf);
 
 	va_end(args);
 }
@@ -59,23 +61,6 @@ void Panic(const char *msg, ...)
 
 std::string g_sExtraAddons;
 CUtlVector<char *> g_vecExtraAddons;
-CON_COMMAND_F(mm_extra_addons, "The workshop IDs of extra addons, separated by commas", FCVAR_LINKED_CONCOMMAND | FCVAR_SPONLY)
-{
-	if (args.ArgC() < 2)
-	{
-		Msg("%s %s\n", args[0], g_sExtraAddons.c_str());
-	}
-	else
-	{
-		g_sExtraAddons = args[1];
-
-		g_vecExtraAddons.PurgeAndDeleteElements();
-		V_SplitString(g_sExtraAddons.c_str(), ",", g_vecExtraAddons);
-	}
-}
-
-float g_flRejoinTimeout = 10.f;
-FAKE_FLOAT_CVAR(mm_extra_addons_timeout, "How long until clients are timed out in between connects for extra addons, requires mm_extra_addons to be used", g_flRejoinTimeout, 10.f, false);
 
 typedef void (FASTCALL *SendNetMessage_t)(INetChannel *pNetChan, INetworkSerializable *pNetMessage, void *pData, int a4);
 typedef void* (FASTCALL *HostStateRequest_t)(void *a1, void **pRequest);
@@ -91,6 +76,7 @@ funchook_t *g_pHostStateRequestHook = nullptr;
 
 class GameSessionConfiguration_t { };
 
+SH_DECL_HOOK0_void(IServerGameDLL, GameServerSteamAPIActivated, SH_NOATTRIB, 0);
 SH_DECL_HOOK3_void(INetworkServerService, StartupServer, SH_NOATTRIB, 0, const GameSessionConfiguration_t &, ISource2WorldSession *, const char *);
 SH_DECL_HOOK6(IServerGameClients, ClientConnect, SH_NOATTRIB, 0, bool, CPlayerSlot, const char*, uint64, const char *, bool, CBufferString *);
 
@@ -98,6 +84,7 @@ MultiAddonManager g_MultiAddonManager;
 IServerGameClients *g_pServerGameClients = nullptr;
 IVEngineServer *g_pEngineServer = nullptr;
 INetworkGameServer *g_pNetworkGameServer = nullptr;
+CSteamGameServerAPIContext g_SteamAPI;
 
 PLUGIN_EXPOSE(MultiAddonManager, g_MultiAddonManager);
 bool MultiAddonManager::Load(PluginId id, ISmmAPI *ismm, char *error, size_t maxlen, bool late)
@@ -107,7 +94,9 @@ bool MultiAddonManager::Load(PluginId id, ISmmAPI *ismm, char *error, size_t max
 	GET_V_IFACE_CURRENT(GetEngineFactory, g_pEngineServer, IVEngineServer, INTERFACEVERSION_VENGINESERVER);
 	GET_V_IFACE_CURRENT(GetEngineFactory, g_pCVar, ICvar, CVAR_INTERFACE_VERSION);
 	GET_V_IFACE_ANY(GetServerFactory, g_pServerGameClients, IServerGameClients, INTERFACEVERSION_SERVERGAMECLIENTS);
+	GET_V_IFACE_ANY(GetServerFactory, g_pSource2Server, ISource2Server, SOURCE2SERVER_INTERFACE_VERSION);
 	GET_V_IFACE_ANY(GetEngineFactory, g_pNetworkServerService, INetworkServerService, NETWORKSERVERSERVICE_INTERFACE_VERSION);
+	GET_V_IFACE_ANY(GetFileSystemFactory, g_pFullFileSystem, IFileSystem, FILESYSTEM_INTERFACE_VERSION);
 
 	// Required to get the IMetamodListener events
 	g_SMAPI->AddListener( this, this );
@@ -151,6 +140,9 @@ bool MultiAddonManager::Load(PluginId id, ISmmAPI *ismm, char *error, size_t max
 		Panic("Signature for HostStateRequest occurs multiple times! Using first match but this might end up crashing!\n");
 	}
 
+	delete pEngineModule;
+	delete pNetworkSystemModule;
+
 	g_pSendNetMessageHook = funchook_create();
 	funchook_prepare(g_pSendNetMessageHook, (void**)&g_pfnSendNetMessage, (void*)Hook_SendNetMessage);
 	funchook_install(g_pSendNetMessageHook, 0);
@@ -159,13 +151,14 @@ bool MultiAddonManager::Load(PluginId id, ISmmAPI *ismm, char *error, size_t max
 	funchook_prepare(g_pHostStateRequestHook, (void **)&g_pfnHostStateRequest, (void*)Hook_HostStateRequest);
 	funchook_install(g_pHostStateRequestHook, 0);
 
+	SH_ADD_HOOK_MEMFUNC(IServerGameDLL, GameServerSteamAPIActivated, g_pSource2Server, this, &MultiAddonManager::Hook_GameServerSteamAPIActivated, false);
 	SH_ADD_HOOK_MEMFUNC(INetworkServerService, StartupServer, g_pNetworkServerService, this, &MultiAddonManager::Hook_StartupServer, true);
 	SH_ADD_HOOK(IServerGameClients, ClientConnect, g_pServerGameClients, SH_MEMBER(this, &MultiAddonManager::Hook_ClientConnect), false);
 
 	if (late)
 		g_pNetworkGameServer = g_pNetworkServerService->GetIGameServer();
 
-	ConVar_Register( FCVAR_RELEASE | FCVAR_CLIENT_CAN_EXECUTE | FCVAR_GAMEDLL );
+	ConVar_Register(FCVAR_LINKED_CONCOMMAND);
 
 	g_pEngineServer->ServerCommand("exec multiaddonmanager/multiaddonmanager");
 
@@ -176,6 +169,7 @@ bool MultiAddonManager::Unload(char *error, size_t maxlen)
 {
 	g_vecExtraAddons.PurgeAndDeleteElements();
 
+	SH_REMOVE_HOOK_MEMFUNC(IServerGameDLL, GameServerSteamAPIActivated, g_pSource2Server, this, &MultiAddonManager::Hook_GameServerSteamAPIActivated, false);
 	SH_REMOVE_HOOK_MEMFUNC(INetworkServerService, StartupServer, g_pNetworkServerService, this, &MultiAddonManager::Hook_StartupServer, true);
 	SH_REMOVE_HOOK(IServerGameClients, ClientConnect, g_pServerGameClients, SH_MEMBER(this, &MultiAddonManager::Hook_ClientConnect), false);
 
@@ -192,6 +186,92 @@ bool MultiAddonManager::Unload(char *error, size_t maxlen)
 	}
 
 	return true;
+}
+
+void DownloadAddon(const char *pszAddon)
+{
+	if (!g_SteamAPI.SteamUGC())
+	{
+		Panic("Cannot download addons as the Steam API is not initialized\n");
+		return;
+	}
+
+	PublishedFileId_t addon = V_StringToUint64(pszAddon, 0);
+
+	if (addon == 0)
+	{
+		Panic("Invalid addon %s\n", pszAddon);
+		return;
+	}
+
+	uint32 nItemState = g_SteamAPI.SteamUGC()->GetItemState(addon);
+
+	if ((nItemState & k_EItemStateInstalled) && !(nItemState & k_EItemStateNeedsUpdate))
+	{
+		Message("Addon %lli is already installed and up to date\n", addon);
+		return;
+	}
+
+	if (!g_SteamAPI.SteamUGC()->DownloadItem(addon, true))
+	{
+		Panic("Addon download for %lli failed to start, addon ID is invalid or server is not logged on Steam\n", addon);
+		return;
+	}
+
+	Message("Addon download started for %lli\n", addon);
+}
+
+void MultiAddonManager::Hook_GameServerSteamAPIActivated()
+{
+	Message("Steam API Activated\n");
+
+	g_SteamAPI.Init();
+	
+	// If there are any extra addons set in the cfg, download them immediately
+	FOR_EACH_VEC(g_vecExtraAddons, i)
+		DownloadAddon(g_vecExtraAddons[i]);
+
+	RETURN_META(MRES_IGNORED);
+}
+
+CON_COMMAND_F(mm_extra_addons, "The workshop IDs of extra addons, separated by commas", FCVAR_LINKED_CONCOMMAND | FCVAR_SPONLY)
+{
+	if (args.ArgC() < 2)
+	{
+		Msg("%s %s\n", args[0], g_sExtraAddons.c_str());
+	}
+	else
+	{
+		g_sExtraAddons = args[1];
+
+		g_vecExtraAddons.PurgeAndDeleteElements();
+		V_SplitString(g_sExtraAddons.c_str(), ",", g_vecExtraAddons);
+
+		// Download extra addons immediately
+		FOR_EACH_VEC(g_vecExtraAddons, i)
+			DownloadAddon(g_vecExtraAddons[i]);
+	}
+}
+
+CON_COMMAND_F(mm_download_addon, "Download an addon manually", FCVAR_GAMEDLL | FCVAR_RELEASE | FCVAR_SPONLY)
+{
+	if (args.ArgC() != 2)
+	{
+		Message("Usage: mm_download_addon <ID>\n");
+		return;
+	}
+
+	DownloadAddon(args[1]);
+}
+
+CON_COMMAND_F(mm_print_searchpaths, "Print search paths", FCVAR_GAMEDLL | FCVAR_RELEASE | FCVAR_SPONLY)
+{
+	g_pFullFileSystem->PrintSearchPaths();
+}
+
+CON_COMMAND_F(mm_print_searchpaths_client, "Print search paths client-side, only usable if you're running the plugin on a listenserver", FCVAR_CLIENTDLL)
+{
+	g_pFullFileSystem->PrintSearchPaths();
 }
 
 CUtlVector<CServerSideClient *> *GetClientList()
@@ -271,6 +351,39 @@ void MultiAddonManager::Hook_StartupServer(const GameSessionConfiguration_t &con
 {
 	g_pNetworkGameServer = g_pNetworkServerService->GetIGameServer();
 	g_ClientsPendingAddon.RemoveAll();
+
+	Message("Hook_StartupServer: %s\n", g_pNetworkGameServer->GetGlobals()->mapname);
+
+	// Remove empty paths added when there are 2+ addons, they screw up file writes
+	g_pFullFileSystem->RemoveSearchPath("", "GAME");
+	g_pFullFileSystem->RemoveSearchPath("", "DEFAULT_WRITE_PATH");
+
+	// Add extra addons to the search paths
+	// This has to be done here to replicate the behavior on clients, where they mount addons in the string order
+	// So if the current map is ID 1 and extra addons are IDs 2 and 3, they would be mounted in that order with ID 3 at the top
+	// Note that the actual map VPK(s) and any sub-maps like team_select will be even higher, but those usually don't contain any assets that concern us
+
+	// Remove our paths first in case addons were switched
+	static CUtlVector<std::string> s_vecAddonPaths;
+	FOR_EACH_VEC_BACK(s_vecAddonPaths, i)
+	{
+		Message("Removing search path: %s\n", s_vecAddonPaths[i].c_str());
+		g_pFullFileSystem->RemoveSearchPath(s_vecAddonPaths[i].c_str(), "GAME");
+		s_vecAddonPaths.FastRemove(i);
+	}
+
+	// The workshop is stored relative to the working directory for whatever reason
+	CBufferStringGrowable<MAX_PATH> sWorkingDir;
+	g_pFullFileSystem->GetSearchPath("EXECUTABLE_PATH", GET_SEARCH_PATH_ALL, sWorkingDir, 1);
+
+	char path[MAX_PATH];
+	FOR_EACH_VEC(g_vecExtraAddons, i)
+	{
+		V_snprintf(path, sizeof(path), "%ssteamapps/workshop/content/730/%s/%s.vpk", sWorkingDir.Get(), g_vecExtraAddons[i], g_vecExtraAddons[i]);
+		Message("Adding search path: %s\n", path);
+		g_pFullFileSystem->AddSearchPath(path, "GAME", PATH_ADD_TO_HEAD, SEARCH_PATH_PRIORITY_VPK);
+		s_vecAddonPaths.AddToTail(path);
+	}
 }
 
 void Hook_SendNetMessage(INetChannel *pNetChan, INetworkSerializable *pNetMessage, void *pData, int a4)
@@ -305,6 +418,8 @@ void* FASTCALL Hook_HostStateRequest(void *a1, void **pRequest)
 	// This offset hasn't changed in 6 years so it should be safe
 	CUtlString *sAddonString = (CUtlString *)(pRequest + 11);
 
+	Message("Hook_HostStateRequest: appending \"%s\" to addon string \"%s\"\n", g_sExtraAddons.c_str(), sAddonString->Get());
+
 	// addons are simply comma-delimited, can have any number of them
 	if (!sAddonString->IsEmpty())
 		sAddonString->Format("%s,%s", sAddonString->Get(), g_sExtraAddons.c_str());
@@ -313,6 +428,9 @@ void* FASTCALL Hook_HostStateRequest(void *a1, void **pRequest)
 
 	return g_pfnHostStateRequest(a1, pRequest);
 }
+
+float g_flRejoinTimeout = 10.f;
+FAKE_FLOAT_CVAR(mm_extra_addons_timeout, "How long until clients are timed out in between connects for extra addons, requires mm_extra_addons to be used", g_flRejoinTimeout, 10.f, false);
 
 bool MultiAddonManager::Hook_ClientConnect( CPlayerSlot slot, const char *pszName, uint64 xuid, const char *pszNetworkID, bool unk1, CBufferString *pRejectReason )
 {

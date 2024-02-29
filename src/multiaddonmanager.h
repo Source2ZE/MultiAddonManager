@@ -22,6 +22,8 @@
 #include <ISmmPlugin.h>
 #include <igameevents.h>
 #include <sh_vector.h>
+#include "steam/steam_api_common.h"
+#include "steam/isteamugc.h"
 
 #ifdef _WIN32
 #define ROOTBIN "/bin/win64/"
@@ -69,6 +71,7 @@ public:
 	bool Load(PluginId id, ISmmAPI *ismm, char *error, size_t maxlen, bool late);
 	bool Unload(char *error, size_t maxlen);
 public: //hooks
+	void Hook_GameServerSteamAPIActivated();
 	void Hook_StartupServer(const GameSessionConfiguration_t &config, ISource2WorldSession *, const char *);
 	bool Hook_ClientConnect( CPlayerSlot slot, const char *pszName, uint64 xuid, const char *pszNetworkID, bool unk1, CBufferString *pRejectReason );
 public:
