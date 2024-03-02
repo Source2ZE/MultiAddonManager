@@ -563,7 +563,7 @@ const char *MultiAddonManager::GetLicense()
 
 const char *MultiAddonManager::GetVersion()
 {
-	return "1.0";
+	return "1.1";
 }
 
 const char *MultiAddonManager::GetDate()
