@@ -42,7 +42,7 @@ void Message(const char *msg, ...)
 	char buf[1024] = {};
 	V_vsnprintf(buf, sizeof(buf) - 1, msg, args);
 
-	LoggingSystem_Log(20, LS_MESSAGE, Color(0, 255, 200), "[MultiAddonManager] %s", buf);
+	ConColorMsg(Color(0, 255, 200), "[MultiAddonManager] %s", buf);
 
 	va_end(args);
 }
@@ -55,7 +55,7 @@ void Panic(const char *msg, ...)
 	char buf[1024] = {};
 	V_vsnprintf(buf, sizeof(buf) - 1, msg, args);
 
-	LoggingSystem_Log(20, LS_WARNING, Color(255, 255, 0), "[MultiAddonManager] %s", buf);
+	Warning("[MultiAddonManager] %s", buf);
 
 	va_end(args);
 }
@@ -214,13 +214,13 @@ bool MultiAddonManager::MountAddon(const char *pszAddon, bool bAddToTail = false
 
 	if (!g_pFullFileSystem->FileExists(path))
 	{
-		Panic(__FUNCTION__": Addon %s not found at %s\n", pszAddon, path);
+		Panic("%s: Addon %s not found at %s\n", __func__, pszAddon, path);
 		return false;
 	}
 
 	if (g_vecMountedAddons.Find(pszAddon) != -1)
 	{
-		Panic(__FUNCTION__": Addon %s is already mounted\n", pszAddon);
+		Panic("%s: Addon %s is already mounted\n", __func__, pszAddon);
 		return false;
 	}
 
@@ -254,7 +254,7 @@ void MultiAddonManager::DownloadAddon(const char *pszAddon, bool bForce = false)
 {
 	if (!g_SteamAPI.SteamUGC())
 	{
-		Panic(__FUNCTION__": Cannot download addons as the Steam API is not initialized\n");
+		Panic("%s: Cannot download addons as the Steam API is not initialized\n", __func__);
 		return;
 	}
 
@@ -262,7 +262,7 @@ void MultiAddonManager::DownloadAddon(const char *pszAddon, bool bForce = false)
 
 	if (addon == 0)
 	{
-		Panic(__FUNCTION__": Invalid addon %s\n", pszAddon);
+		Panic("%s: Invalid addon %s\n", __func__, pszAddon);
 		return;
 	}
 
@@ -276,7 +276,7 @@ void MultiAddonManager::DownloadAddon(const char *pszAddon, bool bForce = false)
 
 	if (!g_SteamAPI.SteamUGC()->DownloadItem(addon, true))
 	{
-		Panic(__FUNCTION__": Addon download for %lli failed to start, addon ID is invalid or server is not logged on Steam\n", addon);
+		Panic("%s: Addon download for %lli failed to start, addon ID is invalid or server is not logged on Steam\n", __func__, addon);
 		return;
 	}
 
@@ -316,7 +316,7 @@ void MultiAddonManager::OnAddonDownloaded(DownloadItemResult_t *pResult)
 {
 	if (pResult->m_eResult != k_EResultOK)
 	{
-		Panic(__FUNCTION__": Addon %lli download failed with status %i\n", pResult->m_nPublishedFileId, pResult->m_eResult);
+		Panic("%s: Addon %lli download failed with status %i\n", __func__, pResult->m_nPublishedFileId, pResult->m_eResult);
 		return;
 	}
 
@@ -459,7 +459,7 @@ ClientJoinInfo_t *GetPendingClient(INetChannel *pNetChan)
 
 void MultiAddonManager::Hook_StartupServer(const GameSessionConfiguration_t &config, ISource2WorldSession *, const char *)
 {
-	Message(__FUNCTION__ ": %s\n", g_pEngineServer->GetServerGlobals()->mapname);
+	Message("%s: %s\n", __func__, g_pEngineServer->GetServerGlobals()->mapname);
 
 	g_pNetworkGameServer = g_pNetworkServerService->GetIGameServer();
 	g_ClientsPendingAddon.RemoveAll();
@@ -486,7 +486,7 @@ void FASTCALL Hook_SendNetMessage(INetChannel *pNetChan, INetworkSerializable *p
 
 	if (pPendingClient)
 	{
-		Message(__FUNCTION__": Sending addon %s to client %lli\n", g_vecExtraAddons[pPendingClient->addon].c_str(), pPendingClient->steamid);
+		Message("%s: Sending addon %s to client %lli\n", __func__, g_vecExtraAddons[pPendingClient->addon].c_str(), pPendingClient->steamid);
 
 		CNETMsg_SignonState *pMsg = (CNETMsg_SignonState *)pData;
 		pMsg->set_addons(g_vecExtraAddons[pPendingClient->addon]);
@@ -506,7 +506,7 @@ void* FASTCALL Hook_HostStateRequest(void *a1, void **pRequest)
 	// This offset hasn't changed in 6 years so it should be safe
 	CUtlString *sAddonString = (CUtlString *)(pRequest + 11);
 
-	Message(__FUNCTION__": appending \"%s\" to addon string \"%s\"\n", g_sExtraAddons.c_str(), sAddonString->Get());
+	Message("%s: appending \"%s\" to addon string \"%s\"\n", __func__, g_sExtraAddons.c_str(), sAddonString->Get());
 
 	// addons are simply comma-delimited, can have any number of them
 	if (!sAddonString->IsEmpty())
