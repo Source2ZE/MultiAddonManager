@@ -10,10 +10,8 @@ If you edit this during a map, you must change map so clients can also get the n
 
 - `mm_extra_addons_timeout <seconds>` How long until clients are timed out in between connects for extra addons
 
-The following commands are for server management only, addons mounted this way will not be sent to clients
-
-- `mm_mount_addon <id>` Mount an addon manually on the server
-- `mm_download_addon <id>` Download and mount an addon manually on the server (addon is mounted upon download completion)
+- `mm_download_addon <id>` Download an addon manually
+- `mm_print_searchpaths` Print all the search paths currently mounted by the server
 ## Installation
 
 - Install [Metamod](https://cs2.poggu.me/metamod/installation/)
