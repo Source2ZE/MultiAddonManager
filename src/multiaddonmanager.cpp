@@ -41,7 +41,7 @@ void Message(const char *msg, ...)
 	char buf[1024] = {};
 	V_vsnprintf(buf, sizeof(buf) - 1, msg, args);
 
-	ConColorMsg(Color(0, 255, 200), "[MultiAddonManager] %s", buf);
+	LoggingSystem_Log(20, LS_MESSAGE, Color(0, 255, 200), "[MultiAddonManager] %s", buf);
 
 	va_end(args);
 }
@@ -54,7 +54,7 @@ void Panic(const char *msg, ...)
 	char buf[1024] = {};
 	V_vsnprintf(buf, sizeof(buf) - 1, msg, args);
 
-	Warning("[MultiAddonManager] %s", buf);
+	LoggingSystem_Log(20, LS_WARNING, Color(255, 255, 0), "[MultiAddonManager] %s", buf);
 
 	va_end(args);
 }
@@ -124,7 +124,7 @@ bool MultiAddonManager::Load(PluginId id, ISmmAPI *ismm, char *error, size_t max
 	}
 	else if (sig_error == SIG_FOUND_MULTIPLE)
 	{
-		Warning("Signature for SendNetMessage occurs multiple times! Using first match but this might end up crashing!\n");
+		Panic("Signature for SendNetMessage occurs multiple times! Using first match but this might end up crashing!\n");
 	}
 
 	g_pfnHostStateRequest = (HostStateRequest_t)pEngineModule->FindSignature(HostStateRequest_Sig, sizeof(HostStateRequest_Sig) - 1, sig_error);
@@ -190,7 +190,7 @@ bool MultiAddonManager::Unload(char *error, size_t maxlen)
 
 CUtlVector<std::string> g_vecMountedAddons;
 
-void BuildAddonPath(const char *pszAddon, char *buf, size_t len)
+void MultiAddonManager::BuildAddonPath(const char *pszAddon, char *buf, size_t len)
 {
 	// The workshop is stored relative to the working directory for whatever reason
 	static CBufferStringGrowable<MAX_PATH> s_sWorkingDir;
@@ -199,7 +199,7 @@ void BuildAddonPath(const char *pszAddon, char *buf, size_t len)
 	V_snprintf(buf, len, "%ssteamapps/workshop/content/730/%s/%s.vpk", s_sWorkingDir.Get(), pszAddon, pszAddon);
 }
 
-bool MountAddon(const char *pszAddon, bool bAddToTail = false)
+bool MultiAddonManager::MountAddon(const char *pszAddon, bool bAddToTail = false)
 {
 	if (!pszAddon || !*pszAddon)
 		return false;
@@ -209,13 +209,13 @@ bool MountAddon(const char *pszAddon, bool bAddToTail = false)
 
 	if (!g_pFullFileSystem->FileExists(path))
 	{
-		Panic("Addon %s not found at %s\n", pszAddon, path);
+		Panic(__FUNCTION__": Addon %s not found at %s\n", pszAddon, path);
 		return false;
 	}
 
 	if (g_vecMountedAddons.Find(pszAddon) != -1)
 	{
-		Panic("Addon %s is already mounted\n", pszAddon);
+		Panic(__FUNCTION__": Addon %s is already mounted\n", pszAddon);
 		return false;
 	}
 
@@ -227,7 +227,7 @@ bool MountAddon(const char *pszAddon, bool bAddToTail = false)
 	return true;
 }
 
-bool UnmountAddon(const char *pszAddon)
+bool MultiAddonManager::UnmountAddon(const char *pszAddon)
 {
 	if (!pszAddon || !*pszAddon)
 		return false;
@@ -245,11 +245,11 @@ bool UnmountAddon(const char *pszAddon)
 	return true;
 }
 
-void DownloadAddon(const char *pszAddon, bool bForce = false)
+void MultiAddonManager::DownloadAddon(const char *pszAddon, bool bForce = false)
 {
 	if (!g_SteamAPI.SteamUGC())
 	{
-		Panic("Cannot download addons as the Steam API is not initialized\n");
+		Panic(__FUNCTION__": Cannot download addons as the Steam API is not initialized\n");
 		return;
 	}
 
@@ -257,7 +257,7 @@ void DownloadAddon(const char *pszAddon, bool bForce = false)
 
 	if (addon == 0)
 	{
-		Panic("Invalid addon %s\n", pszAddon);
+		Panic(__FUNCTION__": Invalid addon %s\n", pszAddon);
 		return;
 	}
 
@@ -271,16 +271,16 @@ void DownloadAddon(const char *pszAddon, bool bForce = false)
 
 	if (!g_SteamAPI.SteamUGC()->DownloadItem(addon, true))
 	{
-		Panic("Addon download for %lli failed to start, addon ID is invalid or server is not logged on Steam\n", addon);
+		Panic(__FUNCTION__": Addon download for %lli failed to start, addon ID is invalid or server is not logged on Steam\n", addon);
 		return;
 	}
 
 	Message("Addon download started for %lli\n", addon);
 }
 
-void RefreshAddons()
+void MultiAddonManager::RefreshAddons()
 {
-	Message("Refreshing addons\n");
+	Message("Refreshing addons (%s)\n", g_sExtraAddons);
 
 	// Remove our paths first in case addons were switched
 	FOR_EACH_VEC_BACK(g_vecMountedAddons, i)
@@ -311,7 +311,7 @@ void MultiAddonManager::OnAddonDownloaded(DownloadItemResult_t *pResult)
 {
 	if (pResult->m_eResult != k_EResultOK)
 	{
-		Panic("Addon %lli download failed with status %i\n", pResult->m_nPublishedFileId, pResult->m_eResult);
+		Panic(__FUNCTION__": Addon %lli download failed with status %i\n", pResult->m_nPublishedFileId, pResult->m_eResult);
 		return;
 	}
 
@@ -340,7 +340,7 @@ CON_COMMAND_F(mm_extra_addons, "The workshop IDs of extra addons separated by co
 	g_vecExtraAddons.PurgeAndDeleteElements();
 	V_SplitString(g_sExtraAddons.c_str(), ",", g_vecExtraAddons);
 
-	RefreshAddons();
+	g_MultiAddonManager.RefreshAddons();
 }
 
 CON_COMMAND_F(mm_download_addon, "Download and mount an addon manually (server only)", FCVAR_GAMEDLL | FCVAR_RELEASE | FCVAR_SPONLY)
@@ -450,7 +450,7 @@ ClientJoinInfo_t *GetPendingClient(INetChannel *pNetChan)
 
 void MultiAddonManager::Hook_StartupServer(const GameSessionConfiguration_t &config, ISource2WorldSession *, const char *)
 {
-	Message("Hook_StartupServer: %s\n", g_pEngineServer->GetServerGlobals()->mapname);
+	Message(__FUNCTION__ ": %s\n", g_pEngineServer->GetServerGlobals()->mapname);
 
 	g_pNetworkGameServer = g_pNetworkServerService->GetIGameServer();
 	g_ClientsPendingAddon.RemoveAll();
@@ -477,7 +477,7 @@ void FASTCALL Hook_SendNetMessage(INetChannel *pNetChan, INetworkSerializable *p
 
 	if (pPendingClient)
 	{
-		Message("Detour_SendNetMessage: Sending addon %s to client %lli\n", g_vecExtraAddons[pPendingClient->addon], pPendingClient->steamid);
+		Message(__FUNCTION__": Sending addon %s to client %lli\n", g_vecExtraAddons[pPendingClient->addon], pPendingClient->steamid);
 
 		CNETMsg_SignonState *pMsg = (CNETMsg_SignonState *)pData;
 		pMsg->set_addons(g_vecExtraAddons[pPendingClient->addon]);
@@ -497,7 +497,7 @@ void* FASTCALL Hook_HostStateRequest(void *a1, void **pRequest)
 	// This offset hasn't changed in 6 years so it should be safe
 	CUtlString *sAddonString = (CUtlString *)(pRequest + 11);
 
-	Message("Hook_HostStateRequest: appending \"%s\" to addon string \"%s\"\n", g_sExtraAddons.c_str(), sAddonString->Get());
+	Message(__FUNCTION__": appending \"%s\" to addon string \"%s\"\n", g_sExtraAddons.c_str(), sAddonString->Get());
 
 	// addons are simply comma-delimited, can have any number of them
 	if (!sAddonString->IsEmpty())
@@ -517,7 +517,7 @@ bool MultiAddonManager::Hook_ClientConnect( CPlayerSlot slot, const char *pszNam
 	if (g_vecExtraAddons.Count() == 0)
 		RETURN_META_VALUE(MRES_IGNORED, true);
 
-	Message("Client %s (%lli) ", pszName, xuid);
+	Message("Client %s (%lli) connected:\n", pszName, xuid);
 
 	// Store the client's ID temporarily as they will get reconnected once an extra addon is sent
 	// This gets checked for in SendNetMessage so we don't repeatedly send the changelevel signon state for the same addon
@@ -529,7 +529,7 @@ bool MultiAddonManager::Hook_ClientConnect( CPlayerSlot slot, const char *pszNam
 	if (!pPendingClient)
 	{
 		// Client joined for the first time or after a timeout
-		ConColorMsg(Color(0, 255, 200), "connected for the first time, sending addon %s\n", g_vecExtraAddons[0]);
+		Message("first connection, sending addon %s\n", g_vecExtraAddons[0]);
 		AddPendingClient(xuid);
 	}
 	else if ((Plat_FloatTime() - pPendingClient->signon_timestamp) < g_flRejoinTimeout)
@@ -540,17 +540,17 @@ bool MultiAddonManager::Hook_ClientConnect( CPlayerSlot slot, const char *pszNam
 
 		if (pPendingClient->addon < g_vecExtraAddons.Count())
 		{
-			ConColorMsg(Color(0, 255, 200), "has reconnected within the interval, sending next addon %s\n", g_vecExtraAddons[pPendingClient->addon]);
+			Message("reconnected within the interval, sending next addon %s\n", g_vecExtraAddons[pPendingClient->addon]);
 		}
 		else
 		{
-			ConColorMsg(Color(0, 255, 200), "has reconnected within the interval and has all addons, allowing\n");
+			Message("reconnected within the interval and has all addons, allowing\n");
 			g_ClientsPendingAddon.FastRemove(index);
 		}
 	}
 	else
 	{
-		ConColorMsg(Color(0, 255, 200), "has reconnected after the timeout or did not receive the addon message, will resend addon %s\n", g_vecExtraAddons[pPendingClient->addon]);
+		Message("reconnected after the timeout or did not receive the addon message, will resend addon %s\n", g_vecExtraAddons[pPendingClient->addon]);
 	}
 
 	RETURN_META_VALUE(MRES_IGNORED, true);

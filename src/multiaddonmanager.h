@@ -74,6 +74,12 @@ public: //hooks
 	void Hook_GameServerSteamAPIActivated();
 	void Hook_StartupServer(const GameSessionConfiguration_t &config, ISource2WorldSession *, const char *);
 	bool Hook_ClientConnect( CPlayerSlot slot, const char *pszName, uint64 xuid, const char *pszNetworkID, bool unk1, CBufferString *pRejectReason );
+
+	void BuildAddonPath(const char *pszAddon, char *buf, size_t len);
+	bool MountAddon(const char *pszAddon, bool bAddToTail);
+	bool UnmountAddon(const char *pszAddon);
+	void DownloadAddon(const char *pszAddon, bool bForce);
+	void RefreshAddons();
 public:
 	const char *GetAuthor();
 	const char *GetName();
