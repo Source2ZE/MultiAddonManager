@@ -117,6 +117,9 @@ INetworkGameServer *g_pNetworkGameServer = nullptr;
 CSteamGameServerAPIContext g_SteamAPI;
 CGlobalVars *gpGlobals = nullptr;
 
+// Interface to other plugins
+CAddonManagerInterface g_AddonManagerInterface;
+
 PLUGIN_EXPOSE(MultiAddonManager, g_MultiAddonManager);
 bool MultiAddonManager::Load(PluginId id, ISmmAPI *ismm, char *error, size_t maxlen, bool late)
 {
@@ -225,6 +228,19 @@ bool MultiAddonManager::Unload(char *error, size_t maxlen)
 	}
 
 	return true;
+}
+
+void *MultiAddonManager::OnMetamodQuery(const char *iface, int *ret)
+{
+	if (V_strcmp(iface, MULTIADDONMANAGER_INTERFACE))
+	{
+		if (ret)
+			*ret = META_IFACE_FAILED;
+
+		return nullptr;
+	}
+
+	return &g_AddonManagerInterface;
 }
 
 void MultiAddonManager::BuildAddonPath(const char *pszAddon, char *buf, size_t len)
@@ -449,6 +465,8 @@ bool MultiAddonManager::AddAddon(const char *pszAddon, bool bRefresh = false)
 
 	if (bRefresh)
 		RefreshAddons();
+
+	return true;
 }
 
 bool MultiAddonManager::RemoveAddon(const char *pszAddon, bool bRefresh = false)
@@ -770,4 +788,29 @@ const char *MultiAddonManager::GetName()
 const char *MultiAddonManager::GetURL()
 {
 	return "https://github.com/Source2ZE/MultiAddonManager";
+}
+
+bool CAddonManagerInterface::AddAddon(const char *pszAddon)
+{
+	return g_MultiAddonManager.AddAddon(pszAddon);
+}
+
+bool CAddonManagerInterface::RemoveAddon(const char *pszAddon)
+{
+	return g_MultiAddonManager.RemoveAddon(pszAddon);
+}
+
+bool CAddonManagerInterface::IsAddonMounted(const char *pszAddon)
+{
+	return g_MultiAddonManager.m_MountedAddons.Find(pszAddon) != -1;
+}
+
+void CAddonManagerInterface::RefreshAddons()
+{
+	g_MultiAddonManager.RefreshAddons(true);
+}
+
+void CAddonManagerInterface::ClearAddons()
+{
+	g_MultiAddonManager.ClearAddons();
 }

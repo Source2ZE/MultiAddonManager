@@ -26,6 +26,7 @@
 #include "utlvector.h"
 #include "steam/steam_api_common.h"
 #include "steam/isteamugc.h"
+#include "imultiaddonmanager.h"
 
 #ifdef _WIN32
 #define ROOTBIN "/bin/win64/"
@@ -70,6 +71,7 @@ class MultiAddonManager : public ISmmPlugin, public IMetamodListener
 public:
 	bool Load(PluginId id, ISmmAPI *ismm, char *error, size_t maxlen, bool late);
 	bool Unload(char *error, size_t maxlen);
+	void *OnMetamodQuery(const char *iface, int *ret);
 public: //hooks
 	void Hook_GameServerSteamAPIActivated();
 	void Hook_StartupServer(const GameSessionConfiguration_t &config, ISource2WorldSession *, const char *);
@@ -113,3 +115,14 @@ private:
 extern MultiAddonManager g_MultiAddonManager;
 
 PLUGIN_GLOBALVARS();
+
+// Interface to other plugins
+class CAddonManagerInterface : IMultiAddonManager
+{
+public:
+	virtual bool AddAddon(const char *pszAddon) override;
+	virtual bool RemoveAddon(const char *pszAddon) override;
+	virtual bool IsAddonMounted(const char *pszAddon) override;
+	virtual void RefreshAddons() override;
+	virtual void ClearAddons() override;
+};
