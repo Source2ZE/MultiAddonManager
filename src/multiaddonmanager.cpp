@@ -60,9 +60,36 @@ void Panic(const char *msg, ...)
 	va_end(args);
 }
 
-std::string g_sExtraAddons;
-CUtlVector<std::string> g_vecExtraAddons;
-CUtlVector<std::string> g_vecMountedAddons;
+void StringToVector(const char *pszString, CUtlVector<std::string> &vector)
+{
+	std::stringstream stream(pszString);
+
+	vector.RemoveAll();
+
+	while (stream.good())
+	{
+		std::string substr;
+		getline(stream, substr, ',');
+
+		if (!substr.empty())
+			vector.AddToTail(substr);
+	}
+}
+
+std::string VectorToString(CUtlVector<std::string> &vector)
+{
+	std::string result;
+
+	FOR_EACH_VEC(vector, i)
+	{
+		result += vector[i];
+
+		if (i + 1 < vector.Count())
+			result += ',';
+	}
+
+	return result;
+}
 
 typedef void (FASTCALL *SendNetMessage_t)(INetChannel *pNetChan, INetworkSerializable *pNetMessage, void *pData, int a4);
 typedef void* (FASTCALL *HostStateRequest_t)(void *a1, void **pRequest);
@@ -81,12 +108,14 @@ class GameSessionConfiguration_t { };
 SH_DECL_HOOK0_void(IServerGameDLL, GameServerSteamAPIActivated, SH_NOATTRIB, 0);
 SH_DECL_HOOK3_void(INetworkServerService, StartupServer, SH_NOATTRIB, 0, const GameSessionConfiguration_t &, ISource2WorldSession *, const char *);
 SH_DECL_HOOK6(IServerGameClients, ClientConnect, SH_NOATTRIB, 0, bool, CPlayerSlot, const char*, uint64, const char *, bool, CBufferString *);
+SH_DECL_HOOK3_void(IServerGameDLL, GameFrame, SH_NOATTRIB, 0, bool, bool, bool);
 
 MultiAddonManager g_MultiAddonManager;
 IServerGameClients *g_pServerGameClients = nullptr;
 IVEngineServer *g_pEngineServer = nullptr;
 INetworkGameServer *g_pNetworkGameServer = nullptr;
 CSteamGameServerAPIContext g_SteamAPI;
+CGlobalVars *gpGlobals = nullptr;
 
 PLUGIN_EXPOSE(MultiAddonManager, g_MultiAddonManager);
 bool MultiAddonManager::Load(PluginId id, ISmmAPI *ismm, char *error, size_t maxlen, bool late)
@@ -156,25 +185,28 @@ bool MultiAddonManager::Load(PluginId id, ISmmAPI *ismm, char *error, size_t max
 	SH_ADD_HOOK_MEMFUNC(IServerGameDLL, GameServerSteamAPIActivated, g_pSource2Server, this, &MultiAddonManager::Hook_GameServerSteamAPIActivated, false);
 	SH_ADD_HOOK_MEMFUNC(INetworkServerService, StartupServer, g_pNetworkServerService, this, &MultiAddonManager::Hook_StartupServer, true);
 	SH_ADD_HOOK(IServerGameClients, ClientConnect, g_pServerGameClients, SH_MEMBER(this, &MultiAddonManager::Hook_ClientConnect), false);
+	SH_ADD_HOOK_MEMFUNC(IServerGameDLL, GameFrame, g_pSource2Server, this, &MultiAddonManager::Hook_GameFrame, true);
 
 	if (late)
+	{
 		g_pNetworkGameServer = g_pNetworkServerService->GetIGameServer();
+		gpGlobals = g_pEngineServer->GetServerGlobals();
+		g_SteamAPI.Init();
+		m_CallbackDownloadItemResult.Register(this, &MultiAddonManager::OnAddonDownloaded);
+	}
 
 	ConVar_Register(FCVAR_LINKED_CONCOMMAND);
 
 	g_pEngineServer->ServerCommand("exec multiaddonmanager/multiaddonmanager");
+
+	Message("Plugin loaded successfully!\n");
 
 	return true;
 }
 
 bool MultiAddonManager::Unload(char *error, size_t maxlen)
 {
-	g_vecExtraAddons.Purge();
-
-	FOR_EACH_VEC_BACK(g_vecMountedAddons, i)
-		UnmountAddon(g_vecMountedAddons[i].c_str());
-
-	g_vecMountedAddons.Purge();
+	ClearAddons();
 
 	SH_REMOVE_HOOK_MEMFUNC(IServerGameDLL, GameServerSteamAPIActivated, g_pSource2Server, this, &MultiAddonManager::Hook_GameServerSteamAPIActivated, false);
 	SH_REMOVE_HOOK_MEMFUNC(INetworkServerService, StartupServer, g_pNetworkServerService, this, &MultiAddonManager::Hook_StartupServer, true);
@@ -209,6 +241,16 @@ bool MultiAddonManager::MountAddon(const char *pszAddon, bool bAddToTail = false
 	if (!pszAddon || !*pszAddon)
 		return false;
 
+	PublishedFileId_t iAddon = V_StringToUint64(pszAddon, 0);
+	uint32 iAddonState = g_SteamAPI.SteamUGC()->GetItemState(iAddon);
+
+	if (!(iAddonState & k_EItemStateInstalled) || (iAddonState & k_EItemStateNeedsUpdate))
+	{
+		Message("%s: Addon %s is not installed or outdated, queuing a download\n", __func__, pszAddon);
+		DownloadAddon(pszAddon, true, true);
+		return false;
+	}
+
 	char path[MAX_PATH];
 	BuildAddonPath(pszAddon, path, sizeof(path));
 
@@ -218,7 +260,7 @@ bool MultiAddonManager::MountAddon(const char *pszAddon, bool bAddToTail = false
 		return false;
 	}
 
-	if (g_vecMountedAddons.Find(pszAddon) != -1)
+	if (m_MountedAddons.Find(pszAddon) != -1)
 	{
 		Panic("%s: Addon %s is already mounted\n", __func__, pszAddon);
 		return false;
@@ -227,7 +269,7 @@ bool MultiAddonManager::MountAddon(const char *pszAddon, bool bAddToTail = false
 	Message("Adding search path: %s\n", path);
 
 	g_pFullFileSystem->AddSearchPath(path, "GAME", bAddToTail ? PATH_ADD_TO_TAIL : PATH_ADD_TO_HEAD, SEARCH_PATH_PRIORITY_VPK);
-	g_vecMountedAddons.AddToTail(pszAddon);
+	m_MountedAddons.AddToTail(pszAddon);
 
 	return true;
 }
@@ -243,14 +285,37 @@ bool MultiAddonManager::UnmountAddon(const char *pszAddon)
 	if (!g_pFullFileSystem->RemoveSearchPath(path, "GAME"))
 		return false;
 
-	g_vecMountedAddons.FindAndFastRemove(pszAddon);
+	m_MountedAddons.FindAndFastRemove(pszAddon);
 
 	Message("Removing search path: %s\n", path);
 
 	return true;
 }
 
-void MultiAddonManager::DownloadAddon(const char *pszAddon, bool bForce = false)
+void MultiAddonManager::PrintDownloadProgress()
+{
+	if (m_DownloadQueue.Count() == 0)
+		return;
+
+	uint64 iBytesDownloaded = 0;
+	uint64 iTotalBytes = 0;
+
+	if (!g_SteamAPI.SteamUGC()->GetItemDownloadInfo(m_DownloadQueue.Head(), &iBytesDownloaded, &iTotalBytes) || !iTotalBytes)
+		return;
+
+	double flMBDownloaded = (double)iBytesDownloaded / 1024 / 1024;
+	double flTotalMB = (double)iTotalBytes / 1024 / 1024;
+
+	double flProgress = (double)iBytesDownloaded / (double)iTotalBytes;
+	flProgress *= 100.f;
+
+	Message("Downloading addon %lli: %.2f/%.2f MB (%.2f%%)\n", m_DownloadQueue.Head(), flMBDownloaded, flTotalMB, flProgress);
+}
+
+// bImportant adds downloads to the pending list, which will reload the current map once the list is exhausted
+// bForce will initiate a download even if the addon already exists and is updated
+// Internally, downloads are queued up and processed one at a time
+void MultiAddonManager::DownloadAddon(const char *pszAddon, bool bImportant = false, bool bForce = false)
 {
 	if (!g_SteamAPI.SteamUGC())
 	{
@@ -266,6 +331,12 @@ void MultiAddonManager::DownloadAddon(const char *pszAddon, bool bForce = false)
 		return;
 	}
 
+	if (m_DownloadQueue.Check(addon))
+	{
+		Panic("%s: Addon %s is already queued for download!\n", __func__, pszAddon);
+		return;
+	}
+
 	uint32 nItemState = g_SteamAPI.SteamUGC()->GetItemState(addon);
 
 	if (!bForce && (nItemState & k_EItemStateInstalled) && !(nItemState & k_EItemStateNeedsUpdate))
@@ -274,31 +345,46 @@ void MultiAddonManager::DownloadAddon(const char *pszAddon, bool bForce = false)
 		return;
 	}
 
-	if (!g_SteamAPI.SteamUGC()->DownloadItem(addon, true))
+	if (!g_SteamAPI.SteamUGC()->DownloadItem(addon, false))
 	{
 		Panic("%s: Addon download for %lli failed to start, addon ID is invalid or server is not logged on Steam\n", __func__, addon);
 		return;
 	}
+	
+	if (bImportant && m_ImportantDownloads.Find(addon) == -1)
+		m_ImportantDownloads.AddToTail(addon);
+
+	m_DownloadQueue.Insert(addon);
 
 	Message("Addon download started for %lli\n", addon);
 }
 
-void MultiAddonManager::RefreshAddons()
+void MultiAddonManager::RefreshAddons(bool bReloadMap = false)
 {
-	Message("Refreshing addons (%s)\n", g_sExtraAddons.c_str());
+	if (!g_SteamAPI.SteamUGC())
+		return;
+
+	Message("Refreshing addons (%s)\n", VectorToString(m_ExtraAddons).c_str());
 
 	// Remove our paths first in case addons were switched
-	FOR_EACH_VEC_BACK(g_vecMountedAddons, i)
-		UnmountAddon(g_vecMountedAddons[i].c_str());
+	FOR_EACH_VEC_BACK(m_MountedAddons, i)
+		UnmountAddon(m_MountedAddons[i].c_str());
 
-	FOR_EACH_VEC(g_vecExtraAddons, i)
-	{
-		if (!MountAddon(g_vecExtraAddons[i].c_str()))
-		{
-			DownloadAddon(g_vecExtraAddons[i].c_str());
-			continue;
-		}
-	}
+	bool bAllAddonsMounted = false;
+
+	FOR_EACH_VEC(m_ExtraAddons, i)
+		bAllAddonsMounted = MountAddon(m_ExtraAddons[i].c_str());
+
+	if (bAllAddonsMounted && bReloadMap)
+		ReloadMap();
+}
+
+void MultiAddonManager::ClearAddons()
+{
+	m_ExtraAddons.RemoveAll();
+
+	FOR_EACH_VEC_BACK(m_MountedAddons, i)
+		UnmountAddon(m_MountedAddons[i].c_str());
 }
 
 void MultiAddonManager::Hook_GameServerSteamAPIActivated()
@@ -306,14 +392,31 @@ void MultiAddonManager::Hook_GameServerSteamAPIActivated()
 	Message("Steam API Activated\n");
 
 	g_SteamAPI.Init();
-
 	m_CallbackDownloadItemResult.Register(this, &MultiAddonManager::OnAddonDownloaded);
+
+	Message("Refreshing addons to check for updates\n");
+	RefreshAddons(true);
 
 	RETURN_META(MRES_IGNORED);
 }
 
+void MultiAddonManager::ReloadMap()
+{
+	char cmd[MAX_PATH];
+
+	// Using the concommand here as g_pEngineServer->ChangeLevel somehow doesn't unmount workshop maps and we wanna be clean
+	if (m_sCurrentWorkshopMap.empty())
+		V_snprintf(cmd, sizeof(cmd), "changelevel %s", gpGlobals->mapname.ToCStr());
+	else
+		V_snprintf(cmd, sizeof(cmd), "host_workshop_map %s", m_sCurrentWorkshopMap.c_str());
+
+	g_pEngineServer->ServerCommand(cmd);
+}
+
 void MultiAddonManager::OnAddonDownloaded(DownloadItemResult_t *pResult)
 {
+	m_DownloadQueue.RemoveAtHead();
+
 	if (pResult->m_eResult != k_EResultOK)
 	{
 		Panic("%s: Addon %lli download failed with status %i\n", __func__, pResult->m_nPublishedFileId, pResult->m_eResult);
@@ -321,46 +424,86 @@ void MultiAddonManager::OnAddonDownloaded(DownloadItemResult_t *pResult)
 	}
 
 	Message("Addon %lli downloaded successfully\n", pResult->m_nPublishedFileId);
-
-	std::string sAddon = std::to_string(pResult->m_nPublishedFileId);
-
-	if (g_vecMountedAddons.Find(sAddon) == -1 && g_vecExtraAddons.Find(sAddon) != -1)
+	
+	bool bFound = m_ImportantDownloads.FindAndRemove(pResult->m_nPublishedFileId);
+	
+	// That was the last important download, now reload the map
+	if (bFound && m_ImportantDownloads.Count() == 0)
 	{
-		// Mount late downloaded addons to the tail so we don't inadvertently override packed map files
-		// This will however place them below the game vpks as well, so any overrides won't work this way
-		MountAddon(sAddon.c_str(), true);
+		Message("All addon downloads finished, reloading map %s\n", gpGlobals->mapname);
+		ReloadMap();
 	}
 }
 
-void SplitStringToVector(const char *pszString, CUtlVector<std::string> &vector)
+bool MultiAddonManager::AddAddon(const char *pszAddon, bool bRefresh = false)
 {
-	std::stringstream stream(pszString);
-
-	vector.RemoveAll();
-
-	while (stream.good())
+	if (m_ExtraAddons.Find(pszAddon) != -1)
 	{
-		std::string substr;
-		getline(stream, substr, ',');
-
-		if (!substr.empty())
-			vector.AddToTail(substr);
+		Panic("Addon %s is already in the list!\n", pszAddon);
+		return false;
 	}
+
+	Message("Adding %s to addon list\n", pszAddon);
+
+	m_ExtraAddons.AddToTail(pszAddon);
+
+	if (bRefresh)
+		RefreshAddons();
+}
+
+bool MultiAddonManager::RemoveAddon(const char *pszAddon, bool bRefresh = false)
+{
+	int index = m_ExtraAddons.Find(pszAddon);
+
+	if (index == -1)
+	{
+		Panic("Addon %s is not in the list!\n", pszAddon);
+		return false;
+	}
+
+	Message("Removing %s from addon list\n", pszAddon);
+
+	m_ExtraAddons.Remove(index);
+
+	if (bRefresh)
+		RefreshAddons();
+
+	return true;
 }
 
 CON_COMMAND_F(mm_extra_addons, "The workshop IDs of extra addons separated by commas, addons will be downloaded (if not present) and mounted", FCVAR_LINKED_CONCOMMAND | FCVAR_SPONLY)
 {
 	if (args.ArgC() < 2)
 	{
-		Msg("%s %s\n", args[0], g_sExtraAddons.c_str());
+		Msg("%s %s\n", args[0], VectorToString(g_MultiAddonManager.m_ExtraAddons).c_str());
 		return;
 	}
 
-	g_sExtraAddons = args[1];
-
-	SplitStringToVector(args[1], g_vecExtraAddons);
+	StringToVector(args[1], g_MultiAddonManager.m_ExtraAddons);
 
 	g_MultiAddonManager.RefreshAddons();
+}
+
+CON_COMMAND_F(mm_add_addon, "Add a workshop ID to the extra addon list", FCVAR_LINKED_CONCOMMAND | FCVAR_SPONLY)
+{
+	if (args.ArgC() < 2)
+	{
+		Msg("Usage: %s <ID>\n", args[0], VectorToString(g_MultiAddonManager.m_ExtraAddons).c_str());
+		return;
+	}
+
+	g_MultiAddonManager.AddAddon(args[1]);
+}
+
+CON_COMMAND_F(mm_remove_addon, "Remove a workshop ID from the extra addon list", FCVAR_LINKED_CONCOMMAND | FCVAR_SPONLY)
+{
+	if (args.ArgC() < 2)
+	{
+		Msg("Usage: %s <ID>\n", args[0], VectorToString(g_MultiAddonManager.m_ExtraAddons).c_str());
+		return;
+	}
+
+	g_MultiAddonManager.RemoveAddon(args[1]);
 }
 
 CON_COMMAND_F(mm_download_addon, "Download an addon manually", FCVAR_GAMEDLL | FCVAR_RELEASE | FCVAR_SPONLY)
@@ -371,7 +514,7 @@ CON_COMMAND_F(mm_download_addon, "Download an addon manually", FCVAR_GAMEDLL | F
 		return;
 	}
 
-	g_MultiAddonManager.DownloadAddon(args[1], true);
+	g_MultiAddonManager.DownloadAddon(args[1], false, true);
 }
 
 CON_COMMAND_F(mm_print_searchpaths, "Print search paths", FCVAR_GAMEDLL | FCVAR_RELEASE | FCVAR_SPONLY)
@@ -459,7 +602,9 @@ ClientJoinInfo_t *GetPendingClient(INetChannel *pNetChan)
 
 void MultiAddonManager::Hook_StartupServer(const GameSessionConfiguration_t &config, ISource2WorldSession *, const char *)
 {
-	Message("%s: %s\n", __func__, g_pEngineServer->GetServerGlobals()->mapname);
+	gpGlobals = g_pEngineServer->GetServerGlobals();
+
+	Message("%s: %s\n", __func__, gpGlobals->mapname);
 
 	g_pNetworkGameServer = g_pNetworkServerService->GetIGameServer();
 	g_ClientsPendingAddon.RemoveAll();
@@ -479,17 +624,17 @@ void FASTCALL Hook_SendNetMessage(INetChannel *pNetChan, INetworkSerializable *p
 	NetMessageInfo_t *info = pNetMessage->GetNetMessageInfo();
 
 	// 7 for signon messages
-	if (info->m_MessageId != 7 || g_vecExtraAddons.Count() == 0)
+	if (info->m_MessageId != 7 || g_MultiAddonManager.m_ExtraAddons.Count() == 0)
 		return g_pfnSendNetMessage(pNetChan, pNetMessage, pData, a4);
 
 	ClientJoinInfo_t *pPendingClient = GetPendingClient(pNetChan);
 
 	if (pPendingClient)
 	{
-		Message("%s: Sending addon %s to client %lli\n", __func__, g_vecExtraAddons[pPendingClient->addon].c_str(), pPendingClient->steamid);
+		Message("%s: Sending addon %s to client %lli\n", __func__, g_MultiAddonManager.m_ExtraAddons[pPendingClient->addon].c_str(), pPendingClient->steamid);
 
 		CNETMsg_SignonState *pMsg = (CNETMsg_SignonState *)pData;
-		pMsg->set_addons(g_vecExtraAddons[pPendingClient->addon]);
+		pMsg->set_addons(g_MultiAddonManager.m_ExtraAddons[pPendingClient->addon]);
 		pMsg->set_signon_state(SIGNONSTATE_CHANGELEVEL);
 
 		pPendingClient->signon_timestamp = Plat_FloatTime();
@@ -500,19 +645,29 @@ void FASTCALL Hook_SendNetMessage(INetChannel *pNetChan, INetworkSerializable *p
 
 void* FASTCALL Hook_HostStateRequest(void *a1, void **pRequest)
 {
-	if (g_sExtraAddons.empty())
+	if (g_MultiAddonManager.m_ExtraAddons.Count() == 0)
 		return g_pfnHostStateRequest(a1, pRequest);
 
 	// This offset hasn't changed in 6 years so it should be safe
 	CUtlString *sAddonString = (CUtlString *)(pRequest + 11);
 
-	Message("%s: appending \"%s\" to addon string \"%s\"\n", __func__, g_sExtraAddons.c_str(), sAddonString->Get());
+	std::string sExtraAddonString = VectorToString(g_MultiAddonManager.m_ExtraAddons);
 
-	// addons are simply comma-delimited, can have any number of them
+	Message("%s: appending \"%s\" to addon string \"%s\"\n", __func__, sExtraAddonString.c_str(), sAddonString->Get());
+
+	// Addons are simply comma-delimited, can have any number of them
+	// The original addon string is the current workshop map
+	// If it's empty, it means we're on a default map
 	if (!sAddonString->IsEmpty())
-		sAddonString->Format("%s,%s", sAddonString->Get(), g_sExtraAddons.c_str());
+	{
+		g_MultiAddonManager.SetCurrentWorkshopMap(sAddonString->Get());
+		sAddonString->Format("%s,%s", sAddonString->Get(), sExtraAddonString.c_str());
+	}
 	else
-		sAddonString->Set(g_sExtraAddons.c_str());
+	{
+		g_MultiAddonManager.ClearCurrentWorkshopMap();
+		sAddonString->Set(sExtraAddonString.c_str());
+	}
 
 	return g_pfnHostStateRequest(a1, pRequest);
 }
@@ -523,7 +678,7 @@ FAKE_FLOAT_CVAR(mm_extra_addons_timeout, "How long until clients are timed out i
 bool MultiAddonManager::Hook_ClientConnect( CPlayerSlot slot, const char *pszName, uint64 xuid, const char *pszNetworkID, bool unk1, CBufferString *pRejectReason )
 {
 	// We don't have an extra addon set so do nothing here
-	if (g_vecExtraAddons.Count() == 0)
+	if (m_ExtraAddons.Count() == 0)
 		RETURN_META_VALUE(MRES_IGNORED, true);
 
 	Message("Client %s (%lli) connected:\n", pszName, xuid);
@@ -538,7 +693,7 @@ bool MultiAddonManager::Hook_ClientConnect( CPlayerSlot slot, const char *pszNam
 	if (!pPendingClient)
 	{
 		// Client joined for the first time or after a timeout
-		Message("first connection, sending addon %s\n", g_vecExtraAddons[0].c_str());
+		Message("first connection, sending addon %s\n", m_ExtraAddons[0].c_str());
 		AddPendingClient(xuid);
 	}
 	else if ((Plat_FloatTime() - pPendingClient->signon_timestamp) < g_flRejoinTimeout)
@@ -547,9 +702,9 @@ bool MultiAddonManager::Hook_ClientConnect( CPlayerSlot slot, const char *pszNam
 		// If they already have the addon this happens almost instantly after receiving the signon message with the addon
 		pPendingClient->addon++;
 
-		if (pPendingClient->addon < g_vecExtraAddons.Count())
+		if (pPendingClient->addon < m_ExtraAddons.Count())
 		{
-			Message("reconnected within the interval, sending next addon %s\n", g_vecExtraAddons[pPendingClient->addon].c_str());
+			Message("reconnected within the interval, sending next addon %s\n", m_ExtraAddons[pPendingClient->addon].c_str());
 		}
 		else
 		{
@@ -559,10 +714,22 @@ bool MultiAddonManager::Hook_ClientConnect( CPlayerSlot slot, const char *pszNam
 	}
 	else
 	{
-		Message("reconnected after the timeout or did not receive the addon message, will resend addon %s\n", g_vecExtraAddons[pPendingClient->addon].c_str());
+		Message("reconnected after the timeout or did not receive the addon message, will resend addon %s\n", m_ExtraAddons[pPendingClient->addon].c_str());
 	}
 
 	RETURN_META_VALUE(MRES_IGNORED, true);
+}
+
+void MultiAddonManager::Hook_GameFrame(bool simulating, bool bFirstTick, bool bLastTick)
+{
+	static double s_flTime = 0.0f;
+
+	// Print download progress every second
+	if (Plat_FloatTime() - s_flTime > 1.f)
+	{
+		s_flTime = Plat_FloatTime();
+		PrintDownloadProgress();
+	}
 }
 
 const char *MultiAddonManager::GetLicense()

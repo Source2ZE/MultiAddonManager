@@ -22,6 +22,8 @@
 #include <ISmmPlugin.h>
 #include <igameevents.h>
 #include <sh_vector.h>
+#include "utlqueue.h"
+#include "utlvector.h"
 #include "steam/steam_api_common.h"
 #include "steam/isteamugc.h"
 
@@ -63,8 +65,6 @@
 			variable_name = args[1];																					\
 	}
 
-class INetChannel;
-
 class MultiAddonManager : public ISmmPlugin, public IMetamodListener
 {
 public:
@@ -73,13 +73,21 @@ public:
 public: //hooks
 	void Hook_GameServerSteamAPIActivated();
 	void Hook_StartupServer(const GameSessionConfiguration_t &config, ISource2WorldSession *, const char *);
-	bool Hook_ClientConnect( CPlayerSlot slot, const char *pszName, uint64 xuid, const char *pszNetworkID, bool unk1, CBufferString *pRejectReason );
+	bool Hook_ClientConnect(CPlayerSlot slot, const char *pszName, uint64 xuid, const char *pszNetworkID, bool unk1, CBufferString *pRejectReason);
+	void Hook_GameFrame(bool simulating, bool bFirstTick, bool bLastTick);
 
 	void BuildAddonPath(const char *pszAddon, char *buf, size_t len);
 	bool MountAddon(const char *pszAddon, bool bAddToTail);
 	bool UnmountAddon(const char *pszAddon);
-	void DownloadAddon(const char *pszAddon, bool bForce);
-	void RefreshAddons();
+	bool AddAddon(const char *pszAddon, bool bRefresh);
+	bool RemoveAddon(const char *pszAddon, bool bRefresh);
+	void DownloadAddon(const char *pszAddon, bool bImportant, bool bForce);
+	void PrintDownloadProgress();
+	void RefreshAddons(bool bReloadMap);
+	void ClearAddons();
+	void ReloadMap();
+	void SetCurrentWorkshopMap(const char *pszWorkshopID) { m_sCurrentWorkshopMap = pszWorkshopID; }
+	void ClearCurrentWorkshopMap() { m_sCurrentWorkshopMap.clear(); }
 public:
 	const char *GetAuthor();
 	const char *GetName();
@@ -89,8 +97,17 @@ public:
 	const char *GetVersion();
 	const char *GetDate();
 	const char *GetLogTag();
+
+	CUtlVector<std::string> m_ExtraAddons;
+	CUtlVector<std::string> m_MountedAddons;
 private:
+	CUtlVector<PublishedFileId_t> m_ImportantDownloads; // Important addon downloads that will trigger a map reload when finished
+	CUtlQueue<PublishedFileId_t> m_DownloadQueue; // Queue of all addon downloads to print progress
+
 	STEAM_GAMESERVER_CALLBACK_MANUAL(MultiAddonManager, OnAddonDownloaded, DownloadItemResult_t, m_CallbackDownloadItemResult);
+
+	// Used when reloading current map
+	std::string m_sCurrentWorkshopMap;
 };
 
 extern MultiAddonManager g_MultiAddonManager;
