@@ -506,7 +506,7 @@ CON_COMMAND_F(mm_add_addon, "Add a workshop ID to the extra addon list", FCVAR_L
 {
 	if (args.ArgC() < 2)
 	{
-		Msg("Usage: %s <ID>\n", args[0], VectorToString(g_MultiAddonManager.m_ExtraAddons).c_str());
+		Msg("Usage: %s <ID>\n", args[0]);
 		return;
 	}
 
@@ -517,7 +517,7 @@ CON_COMMAND_F(mm_remove_addon, "Remove a workshop ID from the extra addon list",
 {
 	if (args.ArgC() < 2)
 	{
-		Msg("Usage: %s <ID>\n", args[0], VectorToString(g_MultiAddonManager.m_ExtraAddons).c_str());
+		Msg("Usage: %s <ID>\n", args[0]);
 		return;
 	}
 
@@ -528,7 +528,7 @@ CON_COMMAND_F(mm_download_addon, "Download an addon manually", FCVAR_GAMEDLL | F
 {
 	if (args.ArgC() != 2)
 	{
-		Message("Usage: mm_download_addon <ID>\n");
+		Message("Usage: %s <ID>\n", args[0]);
 		return;
 	}
 
