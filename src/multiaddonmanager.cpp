@@ -431,15 +431,16 @@ void MultiAddonManager::ReloadMap()
 
 void MultiAddonManager::OnAddonDownloaded(DownloadItemResult_t *pResult)
 {
-	m_DownloadQueue.RemoveAtHead();
-
-	if (pResult->m_eResult != k_EResultOK)
-	{
+	if (pResult->m_eResult == k_EResultOK)
+		Message("Addon %lli downloaded successfully\n", pResult->m_nPublishedFileId);
+	else
 		Panic("%s: Addon %lli download failed with status %i\n", __func__, pResult->m_nPublishedFileId, pResult->m_eResult);
-		return;
-	}
 
-	Message("Addon %lli downloaded successfully\n", pResult->m_nPublishedFileId);
+	// This download isn't triggered by us, don't do anything
+	if (!m_DownloadQueue.Check(pResult->m_nPublishedFileId))
+		return;
+
+	m_DownloadQueue.RemoveAtHead();
 	
 	bool bFound = m_ImportantDownloads.FindAndRemove(pResult->m_nPublishedFileId);
 	
