@@ -643,7 +643,7 @@ void FASTCALL Hook_SendNetMessage(INetChannel *pNetChan, INetworkSerializable *p
 	NetMessageInfo_t *info = pNetMessage->GetNetMessageInfo();
 
 	// 7 for signon messages
-	if (info->m_MessageId != 7 || g_MultiAddonManager.m_ExtraAddons.Count() == 0)
+	if (info->m_MessageId != 7 || g_MultiAddonManager.m_ExtraAddons.Count() == 0 || !CommandLine()->HasParm("-dedicated"))
 		return g_pfnSendNetMessage(pNetChan, pNetMessage, pData, a4);
 
 	ClientJoinInfo_t *pPendingClient = GetPendingClient(pNetChan);
@@ -696,8 +696,8 @@ FAKE_FLOAT_CVAR(mm_extra_addons_timeout, "How long until clients are timed out i
 
 bool MultiAddonManager::Hook_ClientConnect( CPlayerSlot slot, const char *pszName, uint64 xuid, const char *pszNetworkID, bool unk1, CBufferString *pRejectReason )
 {
-	// We don't have an extra addon set so do nothing here
-	if (m_ExtraAddons.Count() == 0)
+	// We don't have an extra addon set so do nothing here, also don't do anything if we're a listenserver
+	if (m_ExtraAddons.Count() == 0 || !CommandLine()->HasParm("-dedicated"))
 		RETURN_META_VALUE(MRES_IGNORED, true);
 
 	Message("Client %s (%lli) connected:\n", pszName, xuid);
