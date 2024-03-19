@@ -88,6 +88,7 @@ public: //hooks
 	void RefreshAddons(bool bReloadMap);
 	void ClearAddons();
 	void ReloadMap();
+	std::string GetCurrentWorkshopMap() { return m_sCurrentWorkshopMap; }
 	void SetCurrentWorkshopMap(const char *pszWorkshopID) { m_sCurrentWorkshopMap = pszWorkshopID; }
 	void ClearCurrentWorkshopMap() { m_sCurrentWorkshopMap.clear(); }
 public:
