@@ -387,10 +387,13 @@ void MultiAddonManager::RefreshAddons(bool bReloadMap = false)
 	FOR_EACH_VEC_BACK(m_MountedAddons, i)
 		UnmountAddon(m_MountedAddons[i].c_str());
 
-	bool bAllAddonsMounted = false;
+	bool bAllAddonsMounted = true;
 
 	FOR_EACH_VEC(m_ExtraAddons, i)
-		bAllAddonsMounted = MountAddon(m_ExtraAddons[i].c_str());
+	{
+		if (!MountAddon(m_ExtraAddons[i].c_str()))
+			bAllAddonsMounted = false;
+	}
 
 	if (bAllAddonsMounted && bReloadMap)
 		ReloadMap();
