@@ -111,7 +111,6 @@ SH_DECL_HOOK6(IServerGameClients, ClientConnect, SH_NOATTRIB, 0, bool, CPlayerSl
 SH_DECL_HOOK3_void(IServerGameDLL, GameFrame, SH_NOATTRIB, 0, bool, bool, bool);
 
 MultiAddonManager g_MultiAddonManager;
-IServerGameClients *g_pServerGameClients = nullptr;
 IVEngineServer *g_pEngineServer = nullptr;
 INetworkGameServer *g_pNetworkGameServer = nullptr;
 CSteamGameServerAPIContext g_SteamAPI;
@@ -127,9 +126,10 @@ bool MultiAddonManager::Load(PluginId id, ISmmAPI *ismm, char *error, size_t max
 
 	GET_V_IFACE_CURRENT(GetEngineFactory, g_pEngineServer, IVEngineServer, INTERFACEVERSION_VENGINESERVER);
 	GET_V_IFACE_CURRENT(GetEngineFactory, g_pCVar, ICvar, CVAR_INTERFACE_VERSION);
-	GET_V_IFACE_ANY(GetServerFactory, g_pServerGameClients, IServerGameClients, INTERFACEVERSION_SERVERGAMECLIENTS);
+	GET_V_IFACE_ANY(GetServerFactory, g_pSource2GameClients, IServerGameClients, INTERFACEVERSION_SERVERGAMECLIENTS);
 	GET_V_IFACE_ANY(GetServerFactory, g_pSource2Server, ISource2Server, SOURCE2SERVER_INTERFACE_VERSION);
 	GET_V_IFACE_ANY(GetEngineFactory, g_pNetworkServerService, INetworkServerService, NETWORKSERVERSERVICE_INTERFACE_VERSION);
+	GET_V_IFACE_ANY(GetEngineFactory, g_pNetworkMessages, INetworkMessages, NETWORKMESSAGES_INTERFACE_VERSION);
 	GET_V_IFACE_ANY(GetFileSystemFactory, g_pFullFileSystem, IFileSystem, FILESYSTEM_INTERFACE_VERSION);
 
 	// Required to get the IMetamodListener events
@@ -185,10 +185,10 @@ bool MultiAddonManager::Load(PluginId id, ISmmAPI *ismm, char *error, size_t max
 	funchook_prepare(g_pHostStateRequestHook, (void **)&g_pfnHostStateRequest, (void*)Hook_HostStateRequest);
 	funchook_install(g_pHostStateRequestHook, 0);
 
-	SH_ADD_HOOK_MEMFUNC(IServerGameDLL, GameServerSteamAPIActivated, g_pSource2Server, this, &MultiAddonManager::Hook_GameServerSteamAPIActivated, false);
-	SH_ADD_HOOK_MEMFUNC(INetworkServerService, StartupServer, g_pNetworkServerService, this, &MultiAddonManager::Hook_StartupServer, true);
-	SH_ADD_HOOK(IServerGameClients, ClientConnect, g_pServerGameClients, SH_MEMBER(this, &MultiAddonManager::Hook_ClientConnect), false);
-	SH_ADD_HOOK_MEMFUNC(IServerGameDLL, GameFrame, g_pSource2Server, this, &MultiAddonManager::Hook_GameFrame, true);
+	SH_ADD_HOOK(IServerGameDLL, GameServerSteamAPIActivated, g_pSource2Server, SH_MEMBER(this, &MultiAddonManager::Hook_GameServerSteamAPIActivated), false);
+	SH_ADD_HOOK(INetworkServerService, StartupServer, g_pNetworkServerService, SH_MEMBER(this, &MultiAddonManager::Hook_StartupServer), false);
+	SH_ADD_HOOK(IServerGameClients, ClientConnect, g_pSource2GameClients, SH_MEMBER(this, &MultiAddonManager::Hook_ClientConnect), false);
+	SH_ADD_HOOK(IServerGameDLL, GameFrame, g_pSource2Server, SH_MEMBER(this, &MultiAddonManager::Hook_GameFrame), true);
 
 	if (late)
 	{
@@ -211,9 +211,10 @@ bool MultiAddonManager::Unload(char *error, size_t maxlen)
 {
 	ClearAddons();
 
-	SH_REMOVE_HOOK_MEMFUNC(IServerGameDLL, GameServerSteamAPIActivated, g_pSource2Server, this, &MultiAddonManager::Hook_GameServerSteamAPIActivated, false);
-	SH_REMOVE_HOOK_MEMFUNC(INetworkServerService, StartupServer, g_pNetworkServerService, this, &MultiAddonManager::Hook_StartupServer, true);
-	SH_REMOVE_HOOK(IServerGameClients, ClientConnect, g_pServerGameClients, SH_MEMBER(this, &MultiAddonManager::Hook_ClientConnect), false);
+	SH_REMOVE_HOOK(IServerGameDLL, GameServerSteamAPIActivated, g_pSource2Server, SH_MEMBER(this, &MultiAddonManager::Hook_GameServerSteamAPIActivated), false);
+	SH_REMOVE_HOOK(INetworkServerService, StartupServer, g_pNetworkServerService, SH_MEMBER(this, &MultiAddonManager::Hook_StartupServer), false);
+	SH_REMOVE_HOOK(IServerGameClients, ClientConnect, g_pSource2GameClients, SH_MEMBER(this, &MultiAddonManager::Hook_ClientConnect), false);
+	SH_REMOVE_HOOK(IServerGameDLL, GameFrame, g_pSource2Server, SH_MEMBER(this, &MultiAddonManager::Hook_GameFrame), true);
 
 	if (g_pSendNetMessageHook)
 	{
