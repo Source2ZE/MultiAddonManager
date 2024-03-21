@@ -246,7 +246,7 @@ void *MultiAddonManager::OnMetamodQuery(const char *iface, int *ret)
 
 void MultiAddonManager::BuildAddonPath(const char *pszAddon, char *buf, size_t len)
 {
-	// The workshop is stored relative to the working directory for whatever reason
+	// The workshop on a dedicated server is stored relative to the working directory for whatever reason
 	static CBufferStringGrowable<MAX_PATH> s_sWorkingDir;
 	ExecuteOnce(g_pFullFileSystem->GetSearchPath("EXECUTABLE_PATH", GET_SEARCH_PATH_ALL, s_sWorkingDir, 1));
 
@@ -409,6 +409,10 @@ void MultiAddonManager::ClearAddons()
 
 void MultiAddonManager::Hook_GameServerSteamAPIActivated()
 {
+	// This is only intended for dedicated servers
+	if (!CommandLine()->FindParm("-dedicated"))
+		return;
+
 	Message("Steam API Activated\n");
 
 	g_SteamAPI.Init();
