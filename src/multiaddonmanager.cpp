@@ -186,7 +186,7 @@ bool MultiAddonManager::Load(PluginId id, ISmmAPI *ismm, char *error, size_t max
 	funchook_install(g_pHostStateRequestHook, 0);
 
 	SH_ADD_HOOK(IServerGameDLL, GameServerSteamAPIActivated, g_pSource2Server, SH_MEMBER(this, &MultiAddonManager::Hook_GameServerSteamAPIActivated), false);
-	SH_ADD_HOOK(INetworkServerService, StartupServer, g_pNetworkServerService, SH_MEMBER(this, &MultiAddonManager::Hook_StartupServer), false);
+	SH_ADD_HOOK(INetworkServerService, StartupServer, g_pNetworkServerService, SH_MEMBER(this, &MultiAddonManager::Hook_StartupServer), true);
 	SH_ADD_HOOK(IServerGameClients, ClientConnect, g_pSource2GameClients, SH_MEMBER(this, &MultiAddonManager::Hook_ClientConnect), false);
 	SH_ADD_HOOK(IServerGameDLL, GameFrame, g_pSource2Server, SH_MEMBER(this, &MultiAddonManager::Hook_GameFrame), true);
 
@@ -212,7 +212,7 @@ bool MultiAddonManager::Unload(char *error, size_t maxlen)
 	ClearAddons();
 
 	SH_REMOVE_HOOK(IServerGameDLL, GameServerSteamAPIActivated, g_pSource2Server, SH_MEMBER(this, &MultiAddonManager::Hook_GameServerSteamAPIActivated), false);
-	SH_REMOVE_HOOK(INetworkServerService, StartupServer, g_pNetworkServerService, SH_MEMBER(this, &MultiAddonManager::Hook_StartupServer), false);
+	SH_REMOVE_HOOK(INetworkServerService, StartupServer, g_pNetworkServerService, SH_MEMBER(this, &MultiAddonManager::Hook_StartupServer), true);
 	SH_REMOVE_HOOK(IServerGameClients, ClientConnect, g_pSource2GameClients, SH_MEMBER(this, &MultiAddonManager::Hook_ClientConnect), false);
 	SH_REMOVE_HOOK(IServerGameDLL, GameFrame, g_pSource2Server, SH_MEMBER(this, &MultiAddonManager::Hook_GameFrame), true);
 
@@ -410,7 +410,7 @@ void MultiAddonManager::ClearAddons()
 void MultiAddonManager::Hook_GameServerSteamAPIActivated()
 {
 	// This is only intended for dedicated servers
-	if (!CommandLine()->FindParm("-dedicated"))
+	if (!CommandLine()->HasParm("-dedicated"))
 		return;
 
 	Message("Steam API Activated\n");
@@ -627,12 +627,11 @@ ClientJoinInfo_t *GetPendingClient(INetChannel *pNetChan)
 	return nullptr;
 }
 
-void MultiAddonManager::Hook_StartupServer(const GameSessionConfiguration_t &config, ISource2WorldSession *, const char *)
+void MultiAddonManager::Hook_StartupServer(const GameSessionConfiguration_t &config, ISource2WorldSession *session, const char *mapname)
 {
+	Message("Hook_StartupServer: %s\n", mapname);
+
 	gpGlobals = g_pEngineServer->GetServerGlobals();
-
-	Message("%s: %s\n", __func__, gpGlobals->mapname);
-
 	g_pNetworkGameServer = g_pNetworkServerService->GetIGameServer();
 	g_ClientsPendingAddon.RemoveAll();
 
