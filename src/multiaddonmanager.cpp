@@ -111,7 +111,6 @@ SH_DECL_HOOK6(IServerGameClients, ClientConnect, SH_NOATTRIB, 0, bool, CPlayerSl
 SH_DECL_HOOK3_void(IServerGameDLL, GameFrame, SH_NOATTRIB, 0, bool, bool, bool);
 
 MultiAddonManager g_MultiAddonManager;
-IVEngineServer *g_pEngineServer = nullptr;
 INetworkGameServer *g_pNetworkGameServer = nullptr;
 CSteamGameServerAPIContext g_SteamAPI;
 CGlobalVars *gpGlobals = nullptr;
