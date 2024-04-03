@@ -726,6 +726,11 @@ bool MultiAddonManager::Hook_ClientConnect( CPlayerSlot slot, const char *pszNam
 	if (m_ExtraAddons.Count() == 0 || !CommandLine()->HasParm("-dedicated"))
 		RETURN_META_VALUE(MRES_IGNORED, true);
 
+	// If we're on a default map and we have only 1 addon, no need to do any of this
+	// The client will be prompted to download upon receiving C2S_CONNECTION with an addon
+	if (m_ExtraAddons.Count() == 1 && m_sCurrentWorkshopMap.empty())
+		RETURN_META_VALUE(MRES_IGNORED, true);
+
 	Message("Client %s (%lli) connected:\n", pszName, xuid);
 
 	// Store the client's ID temporarily as they will get reconnected once an extra addon is sent
