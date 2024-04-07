@@ -441,7 +441,7 @@ void MultiAddonManager::OnAddonDownloaded(DownloadItemResult_t *pResult)
 	if (pResult->m_eResult == k_EResultOK)
 		Message("Addon %lli downloaded successfully\n", pResult->m_nPublishedFileId);
 	else
-		Panic("%s: Addon %lli download failed with status %i\n", __func__, pResult->m_nPublishedFileId, pResult->m_eResult);
+		Panic("Addon %lli download failed with status %i\n", pResult->m_nPublishedFileId, pResult->m_eResult);
 
 	// This download isn't triggered by us, don't do anything
 	if (!m_DownloadQueue.Check(pResult->m_nPublishedFileId))
@@ -674,43 +674,28 @@ void* FASTCALL Hook_HostStateRequest(void *a1, void **pRequest)
 		return g_pfnHostStateRequest(a1, pRequest);
 
 	// This offset hasn't changed in 6 years so it should be safe
-	CUtlString *psNextMap = (CUtlString *)(pRequest + 5);
 	CUtlString *psAddonString = (CUtlString *)(pRequest + 11);
+
+	CUtlVector<std::string> vecAddons;
+	StringToVector(psAddonString->Get(), vecAddons);
+
+	// Clear the string just in case it wasn't somehow, like when reloading the map
+	psAddonString->Clear();
 
 	std::string sExtraAddonString = VectorToString(g_MultiAddonManager.m_ExtraAddons);
 
-	static std::string sCurrentMap = psNextMap->Get();
-
-	// If reloading the same map after a match or from vote, the addon string is not cleared so we have to do this ourselves...
-	// Also if this happens to be a different workshop item but with the same map name then the string will be cleared anyway
-	if (psNextMap->IsEqual_CaseSensitive(sCurrentMap.c_str()))
+	// If it's empty or the first addon in the string is ours, it means we're on a default map
+	if (vecAddons.Count() == 0 || g_MultiAddonManager.m_ExtraAddons.HasElement(vecAddons[0]))
 	{
-		std::string sCurrentWorkshopMap = g_MultiAddonManager.GetCurrentWorkshopMap();
-
-		if (sCurrentWorkshopMap.empty())
-			psAddonString->Clear();
-		else
-			psAddonString->Set(sCurrentWorkshopMap.c_str());
-	}
-	else
-	{
-		sCurrentMap = psNextMap->Get();
-	}
-
-	Message("%s: appending \"%s\" to addon string \"%s\"\n", __func__, sExtraAddonString.c_str(), psAddonString->Get());
-
-	// Addons are simply comma-delimited, can have any number of them
-	// The original addon string is the current workshop map
-	// If it's empty, it means we're on a default map
-	if (!psAddonString->IsEmpty())
-	{
-		g_MultiAddonManager.SetCurrentWorkshopMap(psAddonString->Get());
-		psAddonString->Format("%s,%s", psAddonString->Get(), sExtraAddonString.c_str());
-	}
-	else
-	{
-		g_MultiAddonManager.ClearCurrentWorkshopMap();
+		Message("%s: setting addon string to \"%s\"\n", __func__, sExtraAddonString.c_str());
 		psAddonString->Set(sExtraAddonString.c_str());
+		g_MultiAddonManager.ClearCurrentWorkshopMap();
+	}
+	else
+	{
+		Message("%s: appending \"%s\" to addon string \"%s\"\n", __func__, sExtraAddonString.c_str(), vecAddons[0].c_str());
+		psAddonString->Format("%s,%s", vecAddons[0].c_str(), sExtraAddonString.c_str());
+		g_MultiAddonManager.SetCurrentWorkshopMap(vecAddons[0].c_str());
 	}
 
 	return g_pfnHostStateRequest(a1, pRequest);
