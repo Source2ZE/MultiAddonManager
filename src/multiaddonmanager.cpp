@@ -773,7 +773,7 @@ const char *MultiAddonManager::GetLicense()
 
 const char *MultiAddonManager::GetVersion()
 {
-	return "1.2.4";
+	return MULTIADDONMANAGER_VERSION; // defined by the build script
 }
 
 const char *MultiAddonManager::GetDate()

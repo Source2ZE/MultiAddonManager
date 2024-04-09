@@ -1,5 +1,6 @@
 # vim: set sts=2 ts=8 sw=2 tw=99 et ft=python: 
 import os
+import subprocess
 
 MMSPlugin.plugin_name = 'multiaddonmanager'
 MMSPlugin.plugin_alias = 'multiaddonmanager'
@@ -14,6 +15,9 @@ for sdk_target in MMSPlugin.sdk_targets:
   cxx = sdk_target.cxx
 
   binary = MMSPlugin.HL2Library(builder, cxx, MMSPlugin.plugin_name, sdk)
+  
+  version = subprocess.check_output(['git', 'describe', '--tags', '--long']).decode('ascii').strip()
+  binary.compiler.defines += ['MULTIADDONMANAGER_VERSION="%s"'%(version)]
 
   target_folder = 'Debug' if builder.options.debug else 'Release'
 

@@ -33,6 +33,7 @@ jobs:
         with:
           path: MultiAddonManager
           submodules: recursive
+          fetch-depth: 0
 
       - name: Checkout Metamod
         uses: actions/checkout@v4
