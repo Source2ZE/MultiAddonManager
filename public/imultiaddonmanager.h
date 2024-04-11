@@ -19,7 +19,7 @@
 
 #pragma once
 
-#define MULTIADDONMANAGER_INTERFACE "MultiAddonManager001"
+#define MULTIADDONMANAGER_INTERFACE "MultiAddonManager002"
 
 class IMultiAddonManager
 {
@@ -31,6 +31,12 @@ public:
 	
 	// Returns true if the given addon is mounted in the filesystem
 	virtual bool IsAddonMounted(const char *pszWorkshopID) = 0;
+
+	// Start an addon download of the given workshop ID
+	// Returns true if the download successfully started or the addon already exists, and false otherwise
+	// bImportant: If set, the map will be reloaded once the download finishes 
+	// bForce: If set, will start the download even if the addon already exists
+	virtual bool DownloadAddon(const char *pszWorkshopID, bool bImportant = false, bool bForce = true) = 0;
 
 	// Refresh addons, applying any changes from add/remove
 	// This will trigger a map reload once all addons are updated and mounted

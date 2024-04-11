@@ -83,7 +83,7 @@ public: //hooks
 	bool UnmountAddon(const char *pszAddon);
 	bool AddAddon(const char *pszAddon, bool bRefresh);
 	bool RemoveAddon(const char *pszAddon, bool bRefresh);
-	void DownloadAddon(const char *pszAddon, bool bImportant, bool bForce);
+	bool DownloadAddon(const char *pszAddon, bool bImportant, bool bForce);
 	void PrintDownloadProgress();
 	void RefreshAddons(bool bReloadMap);
 	void ClearAddons();
@@ -124,6 +124,7 @@ public:
 	virtual bool AddAddon(const char *pszAddon) override;
 	virtual bool RemoveAddon(const char *pszAddon) override;
 	virtual bool IsAddonMounted(const char *pszAddon) override;
+	virtual bool DownloadAddon(const char *pszAddon, bool bImportant, bool bForce) override;
 	virtual void RefreshAddons() override;
 	virtual void ClearAddons() override;
 };

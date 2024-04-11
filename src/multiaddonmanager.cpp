@@ -331,12 +331,12 @@ void MultiAddonManager::PrintDownloadProgress()
 // bImportant adds downloads to the pending list, which will reload the current map once the list is exhausted
 // bForce will initiate a download even if the addon already exists and is updated
 // Internally, downloads are queued up and processed one at a time
-void MultiAddonManager::DownloadAddon(const char *pszAddon, bool bImportant = false, bool bForce = false)
+bool MultiAddonManager::DownloadAddon(const char *pszAddon, bool bImportant = false, bool bForce = false)
 {
 	if (!g_SteamAPI.SteamUGC())
 	{
 		Panic("%s: Cannot download addons as the Steam API is not initialized\n", __func__);
-		return;
+		return false;
 	}
 
 	PublishedFileId_t addon = V_StringToUint64(pszAddon, 0);
@@ -344,13 +344,13 @@ void MultiAddonManager::DownloadAddon(const char *pszAddon, bool bImportant = fa
 	if (addon == 0)
 	{
 		Panic("%s: Invalid addon %s\n", __func__, pszAddon);
-		return;
+		return false;
 	}
 
 	if (m_DownloadQueue.Check(addon))
 	{
 		Panic("%s: Addon %s is already queued for download!\n", __func__, pszAddon);
-		return;
+		return false;
 	}
 
 	uint32 nItemState = g_SteamAPI.SteamUGC()->GetItemState(addon);
@@ -358,13 +358,13 @@ void MultiAddonManager::DownloadAddon(const char *pszAddon, bool bImportant = fa
 	if (!bForce && (nItemState & k_EItemStateInstalled) && !(nItemState & k_EItemStateNeedsUpdate))
 	{
 		Message("Addon %lli is already installed and up to date\n", addon);
-		return;
+		return true;
 	}
 
 	if (!g_SteamAPI.SteamUGC()->DownloadItem(addon, false))
 	{
 		Panic("%s: Addon download for %lli failed to start, addon ID is invalid or server is not logged on Steam\n", __func__, addon);
-		return;
+		return false;
 	}
 	
 	if (bImportant && m_ImportantDownloads.Find(addon) == -1)
@@ -373,6 +373,8 @@ void MultiAddonManager::DownloadAddon(const char *pszAddon, bool bImportant = fa
 	m_DownloadQueue.Insert(addon);
 
 	Message("Addon download started for %lli\n", addon);
+
+	return true;
 }
 
 void MultiAddonManager::RefreshAddons(bool bReloadMap = false)
@@ -819,6 +821,11 @@ bool CAddonManagerInterface::RemoveAddon(const char *pszAddon)
 bool CAddonManagerInterface::IsAddonMounted(const char *pszAddon)
 {
 	return g_MultiAddonManager.m_MountedAddons.Find(pszAddon) != -1;
+}
+
+bool CAddonManagerInterface::DownloadAddon(const char *pszAddon, bool bImportant, bool bForce)
+{
+	return g_MultiAddonManager.DownloadAddon(pszAddon, bImportant, bForce);
 }
 
 void CAddonManagerInterface::RefreshAddons()
