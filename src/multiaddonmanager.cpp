@@ -240,6 +240,9 @@ void *MultiAddonManager::OnMetamodQuery(const char *iface, int *ret)
 		return nullptr;
 	}
 
+	if (ret)
+		*ret = META_IFACE_OK;
+
 	return &g_AddonManagerInterface;
 }
 
