@@ -414,7 +414,8 @@ void MultiAddonManager::ClearAddons()
 void MultiAddonManager::Hook_GameServerSteamAPIActivated()
 {
 	// This is only intended for dedicated servers
-	if (!CommandLine()->HasParm("-dedicated"))
+	// Also if this is somehow called again don't do anything
+	if (!CommandLine()->HasParm("-dedicated") || g_SteamAPI.SteamUGC())
 		return;
 
 	Message("Steam API Activated\n");
