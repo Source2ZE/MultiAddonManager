@@ -565,9 +565,9 @@ CUtlVector<CServerSideClient *> *GetClientList()
 		return nullptr;
 
 #ifdef PLATFORM_WINDOWS
-	static constexpr int offset = 77;
+	static constexpr int offset = 75;
 #else
-	static constexpr int offset = 79;
+	static constexpr int offset = 77;
 #endif
 
 	return (CUtlVector<CServerSideClient *> *)(&g_pNetworkGameServer[offset]);
