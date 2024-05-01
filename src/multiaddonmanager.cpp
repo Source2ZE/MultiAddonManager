@@ -255,6 +255,9 @@ void MultiAddonManager::BuildAddonPath(const char *pszAddon, char *buf, size_t l
 	V_snprintf(buf, len, "%ssteamapps/workshop/content/730/%s/%s.vpk", s_sWorkingDir.Get(), pszAddon, pszAddon);
 }
 
+bool g_bAddonMountDownload = false;
+FAKE_BOOL_CVAR(mm_addon_mount_download, "Whether to download an addon upon mounting even if it's installed", g_bAddonMountDownload, false, false);
+
 bool MultiAddonManager::MountAddon(const char *pszAddon, bool bAddToTail = false)
 {
 	if (!pszAddon || !*pszAddon)
@@ -263,11 +266,16 @@ bool MultiAddonManager::MountAddon(const char *pszAddon, bool bAddToTail = false
 	PublishedFileId_t iAddon = V_StringToUint64(pszAddon, 0);
 	uint32 iAddonState = g_SteamAPI.SteamUGC()->GetItemState(iAddon);
 
-	if (!(iAddonState & k_EItemStateInstalled) || (iAddonState & k_EItemStateNeedsUpdate))
+	if (!(iAddonState & k_EItemStateInstalled))
 	{
-		Message("%s: Addon %s is not installed or outdated, queuing a download\n", __func__, pszAddon);
+		Message("%s: Addon %s is not installed, queuing a download\n", __func__, pszAddon);
 		DownloadAddon(pszAddon, true, true);
 		return false;
+	}
+	else if (g_bAddonMountDownload)
+	{
+		// Queue a download anyway in case the addon got an update and the server desires this, but don't reload the map when done
+		DownloadAddon(pszAddon, false, true);
 	}
 
 	char path[MAX_PATH];
@@ -358,9 +366,9 @@ bool MultiAddonManager::DownloadAddon(const char *pszAddon, bool bImportant = fa
 
 	uint32 nItemState = g_SteamAPI.SteamUGC()->GetItemState(addon);
 
-	if (!bForce && (nItemState & k_EItemStateInstalled) && !(nItemState & k_EItemStateNeedsUpdate))
+	if (!bForce && (nItemState & k_EItemStateInstalled))
 	{
-		Message("Addon %lli is already installed and up to date\n", addon);
+		Message("Addon %lli is already installed\n", addon);
 		return true;
 	}
 
