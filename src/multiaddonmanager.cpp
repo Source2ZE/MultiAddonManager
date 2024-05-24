@@ -141,7 +141,7 @@ bool MultiAddonManager::Load(PluginId id, ISmmAPI *ismm, char *error, size_t max
 	const byte SendNetMessage_Sig[] = "\x48\x89\x5C\x24\x10\x48\x89\x6C\x24\x18\x48\x89\x74\x24\x20\x57\x41\x56\x41\x57\x48\x83\xEC\x40\x49\x8B\xE8";
 	const byte HostStateRequest_Sig[] = "\x48\x89\x74\x24\x10\x57\x48\x83\xEC\x30\x33\xF6\x48\x8B\xFA";
 #else
-	const byte SendNetMessage_Sig[] = "\x55\x48\x89\xE5\x41\x57\x41\x89\xCF\x41\x56\x4C\x8D\xB7\x90\x76\x00\x00";
+	const byte SendNetMessage_Sig[] = "\x55\x48\x89\xE5\x41\x57\x41\x89\xCF\x41\x56\x4C\x8D\xB7\x2A\x2A\x00\x00";
 	const byte HostStateRequest_Sig[] = "\x55\x48\x89\xE5\x41\x56\x41\x55\x41\x54\x49\x89\xF4\x53\x48\x83\x7F\x30\x00";
 #endif
 
@@ -573,9 +573,9 @@ CUtlVector<CServerSideClient *> *GetClientList()
 		return nullptr;
 
 #ifdef PLATFORM_WINDOWS
-	static constexpr int offset = 75;
+	static constexpr int offset = 78;
 #else
-	static constexpr int offset = 77;
+	static constexpr int offset = 80;
 #endif
 
 	return (CUtlVector<CServerSideClient *> *)(&g_pNetworkGameServer[offset]);
