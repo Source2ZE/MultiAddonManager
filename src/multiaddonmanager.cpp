@@ -24,6 +24,7 @@
 #include "module.h"
 #include "utils/plat.h"
 #include "networksystem/inetworkserializer.h"
+#include "networksystem/inetworkmessages.h"
 #include "serversideclient.h"
 #include "funchook.h"
 #include "filesystem.h"
@@ -91,10 +92,10 @@ std::string VectorToString(CUtlVector<std::string> &vector)
 	return result;
 }
 
-typedef void (FASTCALL *SendNetMessage_t)(INetChannel *pNetChan, INetworkSerializable *pNetMessage, void *pData, int a4);
+typedef void (FASTCALL *SendNetMessage_t)(INetChannel *pNetChan, INetworkMessageInternal *pNetMessage, CNetMessage *pData, int a4);
 typedef void* (FASTCALL *HostStateRequest_t)(void *a1, void **pRequest);
 
-void FASTCALL Hook_SendNetMessage(INetChannel *pNetChan, INetworkSerializable *pNetMessage, void *pData, int a4);
+void FASTCALL Hook_SendNetMessage(INetChannel *pNetChan, INetworkMessageInternal *pNetMessage, CNetMessage *pData, int a4);
 void* FASTCALL Hook_HostStateRequest(void *a1, void **pRequest);
 
 SendNetMessage_t g_pfnSendNetMessage = nullptr;
@@ -658,7 +659,7 @@ void MultiAddonManager::Hook_StartupServer(const GameSessionConfiguration_t &con
 	RefreshAddons();
 }
 
-void FASTCALL Hook_SendNetMessage(INetChannel *pNetChan, INetworkSerializable *pNetMessage, void *pData, int a4)
+void FASTCALL Hook_SendNetMessage(INetChannel *pNetChan, INetworkMessageInternal *pNetMessage, CNetMessage *pData, int a4)
 {
 	NetMessageInfo_t *info = pNetMessage->GetNetMessageInfo();
 
@@ -672,7 +673,7 @@ void FASTCALL Hook_SendNetMessage(INetChannel *pNetChan, INetworkSerializable *p
 	{
 		Message("%s: Sending addon %s to client %lli\n", __func__, g_MultiAddonManager.m_ExtraAddons[pPendingClient->addon].c_str(), pPendingClient->steamid);
 
-		CNETMsg_SignonState *pMsg = (CNETMsg_SignonState *)pData;
+		auto pMsg = pData->ToPB<CNETMsg_SignonState>();
 		pMsg->set_addons(g_MultiAddonManager.m_ExtraAddons[pPendingClient->addon]);
 		pMsg->set_signon_state(SIGNONSTATE_CHANGELEVEL);
 
