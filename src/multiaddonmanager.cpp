@@ -667,13 +667,23 @@ void FASTCALL Hook_SendNetMessage(INetChannel *pNetChan, INetworkMessageInternal
 	if (info->m_MessageId != 7 || g_MultiAddonManager.m_ExtraAddons.Count() == 0 || !CommandLine()->HasParm("-dedicated"))
 		return g_pfnSendNetMessage(pNetChan, pNetMessage, pData, a4);
 
+	auto pMsg = pData->ToPB<CNETMsg_SignonState>();
+
+	// If the server is changing maps then we don't want to send all addons in this message
+	// Because for SOME reason, this can put the client in a state of limbo after the 25/07/2024 update
+	// Also we send the workshop map here because the client MUST have it in order to remain in the server
+	// This is what prompts clients to download the next map after all
+	if (pMsg->signon_state() == SIGNONSTATE_CHANGELEVEL)
+		pMsg->set_addons(g_MultiAddonManager.GetCurrentWorkshopMap().c_str());
+
 	ClientJoinInfo_t *pPendingClient = GetPendingClient(pNetChan);
 
 	if (pPendingClient)
 	{
+		// This only happens after the client connects, therefore the signon message is for SIGNONSTATE_PRESPAWN
+		// and we can proceed to send addons as usual
 		Message("%s: Sending addon %s to client %lli\n", __func__, g_MultiAddonManager.m_ExtraAddons[pPendingClient->addon].c_str(), pPendingClient->steamid);
 
-		auto pMsg = pData->ToPB<CNETMsg_SignonState>();
 		pMsg->set_addons(g_MultiAddonManager.m_ExtraAddons[pPendingClient->addon]);
 		pMsg->set_signon_state(SIGNONSTATE_CHANGELEVEL);
 
