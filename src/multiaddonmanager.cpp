@@ -673,7 +673,7 @@ void FASTCALL Hook_SendNetMessage(INetChannel *pNetChan, INetworkMessageInternal
 	// Because for SOME reason, this can put the client in a state of limbo after the 25/07/2024 update
 	// Also we send the workshop map here because the client MUST have it in order to remain in the server
 	// This is what prompts clients to download the next map after all
-	if (pMsg->signon_state() == SIGNONSTATE_CHANGELEVEL)
+	if (pMsg->signon_state() == SIGNONSTATE_CHANGELEVEL && g_MultiAddonManager.GetCurrentWorkshopMap().size())
 		pMsg->set_addons(g_MultiAddonManager.GetCurrentWorkshopMap().c_str());
 
 	ClientJoinInfo_t *pPendingClient = GetPendingClient(pNetChan);
