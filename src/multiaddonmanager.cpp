@@ -92,10 +92,10 @@ std::string VectorToString(CUtlVector<std::string> &vector)
 	return result;
 }
 
-typedef void (FASTCALL *SendNetMessage_t)(INetChannel *pNetChan, INetworkMessageInternal *pNetMessage, CNetMessage *pData, int a4);
+typedef void (FASTCALL *SendNetMessage_t)(INetChannel *pNetChan, CNetMessage *pData, int a4);
 typedef void* (FASTCALL *HostStateRequest_t)(void *a1, void **pRequest);
 
-void FASTCALL Hook_SendNetMessage(INetChannel *pNetChan, INetworkMessageInternal *pNetMessage, CNetMessage *pData, int a4);
+void FASTCALL Hook_SendNetMessage(INetChannel *pNetChan, CNetMessage *pData, int a4);
 void* FASTCALL Hook_HostStateRequest(void *a1, void **pRequest);
 
 SendNetMessage_t g_pfnSendNetMessage = nullptr;
@@ -139,10 +139,10 @@ bool MultiAddonManager::Load(PluginId id, ISmmAPI *ismm, char *error, size_t max
 	CModule *pNetworkSystemModule = new CModule(ROOTBIN, "networksystem");
 
 #ifdef PLATFORM_WINDOWS
-	const byte SendNetMessage_Sig[] = "\x48\x89\x5C\x24\x10\x48\x89\x6C\x24\x18\x48\x89\x74\x24\x20\x57\x41\x56\x41\x57\x48\x83\xEC\x40\x49\x8B\xE8";
+	const byte SendNetMessage_Sig[] = "\x48\x89\x5C\x24\x10\x48\x89\x6C\x24\x18\x56\x57\x41\x56\x48\x83\xEC\x40\x48\x8D\xA9\xD8\x75\x00\x00";
 	const byte HostStateRequest_Sig[] = "\x48\x89\x74\x24\x10\x57\x48\x83\xEC\x30\x33\xF6\x48\x8B\xFA";
 #else
-	const byte SendNetMessage_Sig[] = "\x55\x48\x89\xE5\x41\x57\x41\x89\xCF\x41\x56\x4C\x8D\xB7\x2A\x2A\x00\x00";
+	const byte SendNetMessage_Sig[] = "\x55\x48\x89\xE5\x41\x57\x41\x56\x4C\x8D\xB7\x2A\x2A\x2A\x2A\x41\x55\x49\x89\xF5";
 	const byte HostStateRequest_Sig[] = "\x55\x48\x89\xE5\x41\x56\x41\x55\x41\x54\x49\x89\xF4\x53\x48\x83\x7F\x30\x00";
 #endif
 
@@ -659,13 +659,13 @@ void MultiAddonManager::Hook_StartupServer(const GameSessionConfiguration_t &con
 	RefreshAddons();
 }
 
-void FASTCALL Hook_SendNetMessage(INetChannel *pNetChan, INetworkMessageInternal *pNetMessage, CNetMessage *pData, int a4)
+void FASTCALL Hook_SendNetMessage(INetChannel *pNetChan, CNetMessage *pData, int a4)
 {
-	NetMessageInfo_t *info = pNetMessage->GetNetMessageInfo();
+	NetMessageInfo_t *info = pData->GetNetMessage()->GetNetMessageInfo();
 
 	// 7 for signon messages
 	if (info->m_MessageId != 7 || g_MultiAddonManager.m_ExtraAddons.Count() == 0 || !CommandLine()->HasParm("-dedicated"))
-		return g_pfnSendNetMessage(pNetChan, pNetMessage, pData, a4);
+		return g_pfnSendNetMessage(pNetChan, pData, a4);
 
 	auto pMsg = pData->ToPB<CNETMsg_SignonState>();
 
@@ -692,7 +692,7 @@ void FASTCALL Hook_SendNetMessage(INetChannel *pNetChan, INetworkMessageInternal
 		pPendingClient->signon_timestamp = Plat_FloatTime();
 	}
 
-	g_pfnSendNetMessage(pNetChan, pNetMessage, pData, a4);
+	g_pfnSendNetMessage(pNetChan, pData, a4);
 }
 
 void* FASTCALL Hook_HostStateRequest(void *a1, void **pRequest)
