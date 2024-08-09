@@ -92,17 +92,12 @@ std::string VectorToString(CUtlVector<std::string> &vector)
 	return result;
 }
 
-typedef void (FASTCALL *SendNetMessage_t)(INetChannel *pNetChan, CNetMessage *pData, int a4);
 typedef void* (FASTCALL *HostStateRequest_t)(void *a1, void **pRequest);
-
-void FASTCALL Hook_SendNetMessage(INetChannel *pNetChan, CNetMessage *pData, int a4);
 void* FASTCALL Hook_HostStateRequest(void *a1, void **pRequest);
-
-SendNetMessage_t g_pfnSendNetMessage = nullptr;
 HostStateRequest_t g_pfnHostStateRequest = nullptr;
-
-funchook_t *g_pSendNetMessageHook = nullptr;
 funchook_t *g_pHostStateRequestHook = nullptr;
+
+int g_iSendNetMessage;
 
 class GameSessionConfiguration_t { };
 
@@ -110,6 +105,12 @@ SH_DECL_HOOK0_void(IServerGameDLL, GameServerSteamAPIActivated, SH_NOATTRIB, 0);
 SH_DECL_HOOK3_void(INetworkServerService, StartupServer, SH_NOATTRIB, 0, const GameSessionConfiguration_t &, ISource2WorldSession *, const char *);
 SH_DECL_HOOK6(IServerGameClients, ClientConnect, SH_NOATTRIB, 0, bool, CPlayerSlot, const char*, uint64, const char *, bool, CBufferString *);
 SH_DECL_HOOK3_void(IServerGameDLL, GameFrame, SH_NOATTRIB, 0, bool, bool, bool);
+
+#ifdef PLATFORM_WINDOWS
+SH_DECL_MANUALHOOK2(SendNetMessage, 15, 0, 0, bool, CNetMessage *, NetChannelBufType_t);
+#else
+SH_DECL_MANUALHOOK2(SendNetMessage, 16, 0, 0, bool, CNetMessage *, NetChannelBufType_t);
+#endif
 
 MultiAddonManager g_MultiAddonManager;
 INetworkGameServer *g_pNetworkGameServer = nullptr;
@@ -135,33 +136,17 @@ bool MultiAddonManager::Load(PluginId id, ISmmAPI *ismm, char *error, size_t max
 	// Required to get the IMetamodListener events
 	g_SMAPI->AddListener( this, this );
 
-	CModule *pEngineModule = new CModule(ROOTBIN, "engine2");
-	CModule *pNetworkSystemModule = new CModule(ROOTBIN, "networksystem");
+	CModule engineModule(ROOTBIN, "engine2");
 
 #ifdef PLATFORM_WINDOWS
-	const byte SendNetMessage_Sig[] = "\x48\x89\x5C\x24\x10\x48\x89\x6C\x24\x18\x56\x57\x41\x56\x48\x83\xEC\x40\x48\x8D\xA9\xD8\x75\x00\x00";
 	const byte HostStateRequest_Sig[] = "\x48\x89\x74\x24\x10\x57\x48\x83\xEC\x30\x33\xF6\x48\x8B\xFA";
 #else
-	const byte SendNetMessage_Sig[] = "\x55\x48\x89\xE5\x41\x57\x41\x56\x4C\x8D\xB7\x2A\x2A\x2A\x2A\x41\x55\x49\x89\xF5";
 	const byte HostStateRequest_Sig[] = "\x55\x48\x89\xE5\x41\x56\x41\x55\x41\x54\x49\x89\xF4\x53\x48\x83\x7F\x30\x00";
 #endif
 
 	int sig_error;
 
-	g_pfnSendNetMessage = (SendNetMessage_t)pNetworkSystemModule->FindSignature(SendNetMessage_Sig, sizeof(SendNetMessage_Sig) - 1, sig_error);
-
-	if (!g_pfnSendNetMessage)
-	{
-		V_snprintf(error, maxlen, "Could not find the signature for SendNetMessage\n");
-		Panic("%s", error);
-		return false;
-	}
-	else if (sig_error == SIG_FOUND_MULTIPLE)
-	{
-		Panic("Signature for SendNetMessage occurs multiple times! Using first match but this might end up crashing!\n");
-	}
-
-	g_pfnHostStateRequest = (HostStateRequest_t)pEngineModule->FindSignature(HostStateRequest_Sig, sizeof(HostStateRequest_Sig) - 1, sig_error);
+	g_pfnHostStateRequest = (HostStateRequest_t)engineModule.FindSignature(HostStateRequest_Sig, sizeof(HostStateRequest_Sig) - 1, sig_error);
 
 	if (!g_pfnHostStateRequest)
 	{
@@ -174,13 +159,6 @@ bool MultiAddonManager::Load(PluginId id, ISmmAPI *ismm, char *error, size_t max
 		Panic("Signature for HostStateRequest occurs multiple times! Using first match but this might end up crashing!\n");
 	}
 
-	delete pEngineModule;
-	delete pNetworkSystemModule;
-
-	g_pSendNetMessageHook = funchook_create();
-	funchook_prepare(g_pSendNetMessageHook, (void**)&g_pfnSendNetMessage, (void*)Hook_SendNetMessage);
-	funchook_install(g_pSendNetMessageHook, 0);
-
 	g_pHostStateRequestHook = funchook_create();
 	funchook_prepare(g_pHostStateRequestHook, (void **)&g_pfnHostStateRequest, (void*)Hook_HostStateRequest);
 	funchook_install(g_pHostStateRequestHook, 0);
@@ -189,6 +167,9 @@ bool MultiAddonManager::Load(PluginId id, ISmmAPI *ismm, char *error, size_t max
 	SH_ADD_HOOK(INetworkServerService, StartupServer, g_pNetworkServerService, SH_MEMBER(this, &MultiAddonManager::Hook_StartupServer), true);
 	SH_ADD_HOOK(IServerGameClients, ClientConnect, g_pSource2GameClients, SH_MEMBER(this, &MultiAddonManager::Hook_ClientConnect), false);
 	SH_ADD_HOOK(IServerGameDLL, GameFrame, g_pSource2Server, SH_MEMBER(this, &MultiAddonManager::Hook_GameFrame), true);
+
+	void *pServerSideClientVTable = engineModule.FindVirtualTable("CServerSideClient");
+	g_iSendNetMessage = SH_ADD_MANUALDVPHOOK(SendNetMessage, pServerSideClientVTable, SH_MEMBER(&g_MultiAddonManager, &MultiAddonManager::Hook_SendNetMessage), false);
 
 	if (late)
 	{
@@ -215,12 +196,7 @@ bool MultiAddonManager::Unload(char *error, size_t maxlen)
 	SH_REMOVE_HOOK(INetworkServerService, StartupServer, g_pNetworkServerService, SH_MEMBER(this, &MultiAddonManager::Hook_StartupServer), true);
 	SH_REMOVE_HOOK(IServerGameClients, ClientConnect, g_pSource2GameClients, SH_MEMBER(this, &MultiAddonManager::Hook_ClientConnect), false);
 	SH_REMOVE_HOOK(IServerGameDLL, GameFrame, g_pSource2Server, SH_MEMBER(this, &MultiAddonManager::Hook_GameFrame), true);
-
-	if (g_pSendNetMessageHook)
-	{
-		funchook_uninstall(g_pSendNetMessageHook, 0);
-		funchook_destroy(g_pSendNetMessageHook);
-	}
+	SH_REMOVE_HOOK_ID(g_iSendNetMessage);
 
 	if (g_pHostStateRequestHook)
 	{
@@ -623,22 +599,10 @@ ClientJoinInfo_t *GetPendingClient(uint64 steamid, int &index)
 	return nullptr;
 }
 
-ClientJoinInfo_t *GetPendingClient(INetChannel *pNetChan)
+ClientJoinInfo_t *GetPendingClient(uint64 steamid)
 {
-	CUtlVector<CServerSideClient *> *pClients = GetClientList();
-
-	if (!pClients)
-		return nullptr;
-
-	FOR_EACH_VEC(*pClients, i)
-	{
-		CServerSideClient *pClient = pClients->Element(i);
-
-		if (pClient && pClient->GetNetChannel() == pNetChan)
-			return GetPendingClient(pClient->GetClientSteamID()->ConvertToUint64(), i); // just pass i here, it's discarded anyway
-	}
-
-	return nullptr;
+	int index;
+	return GetPendingClient(steamid, index);
 }
 
 void MultiAddonManager::Hook_StartupServer(const GameSessionConfiguration_t &config, ISource2WorldSession *session, const char *mapname)
@@ -659,13 +623,13 @@ void MultiAddonManager::Hook_StartupServer(const GameSessionConfiguration_t &con
 	RefreshAddons();
 }
 
-void FASTCALL Hook_SendNetMessage(INetChannel *pNetChan, CNetMessage *pData, int a4)
+bool MultiAddonManager::Hook_SendNetMessage(CNetMessage *pData, NetChannelBufType_t bufType)
 {
 	NetMessageInfo_t *info = pData->GetNetMessage()->GetNetMessageInfo();
 
 	// 7 for signon messages
 	if (info->m_MessageId != 7 || g_MultiAddonManager.m_ExtraAddons.Count() == 0 || !CommandLine()->HasParm("-dedicated"))
-		return g_pfnSendNetMessage(pNetChan, pData, a4);
+		RETURN_META_VALUE(MRES_IGNORED, true);
 
 	auto pMsg = pData->ToPB<CNETMsg_SignonState>();
 
@@ -678,7 +642,9 @@ void FASTCALL Hook_SendNetMessage(INetChannel *pNetChan, CNetMessage *pData, int
 	if (pMsg->signon_state() == SIGNONSTATE_CHANGELEVEL)
 		pMsg->set_addons(sMap.empty() ? g_MultiAddonManager.m_ExtraAddons[0].c_str() : sMap.c_str()); // If we're on a default map send the first addon
 
-	ClientJoinInfo_t *pPendingClient = GetPendingClient(pNetChan);
+	CServerSideClient *pClient = META_IFACEPTR(CServerSideClient);
+
+	ClientJoinInfo_t *pPendingClient = GetPendingClient(pClient->GetClientSteamID()->ConvertToUint64());
 
 	if (pPendingClient)
 	{
@@ -692,7 +658,7 @@ void FASTCALL Hook_SendNetMessage(INetChannel *pNetChan, CNetMessage *pData, int
 		pPendingClient->signon_timestamp = Plat_FloatTime();
 	}
 
-	g_pfnSendNetMessage(pNetChan, pData, a4);
+	RETURN_META_VALUE(MRES_HANDLED, true);
 }
 
 void* FASTCALL Hook_HostStateRequest(void *a1, void **pRequest)

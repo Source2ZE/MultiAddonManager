@@ -24,6 +24,7 @@
 #include <sh_vector.h>
 #include "utlqueue.h"
 #include "utlvector.h"
+#include "networksystem/inetworkserializer.h"
 #include "steam/steam_api_common.h"
 #include "steam/isteamugc.h"
 #include "imultiaddonmanager.h"
@@ -75,6 +76,7 @@ public:
 public: //hooks
 	void Hook_GameServerSteamAPIActivated();
 	void Hook_StartupServer(const GameSessionConfiguration_t &config, ISource2WorldSession *, const char *);
+	bool Hook_SendNetMessage(CNetMessage *pData, NetChannelBufType_t bufType);
 	bool Hook_ClientConnect(CPlayerSlot slot, const char *pszName, uint64 xuid, const char *pszNetworkID, bool unk1, CBufferString *pRejectReason);
 	void Hook_GameFrame(bool simulating, bool bFirstTick, bool bLastTick);
 
