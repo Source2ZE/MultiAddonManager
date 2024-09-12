@@ -112,6 +112,16 @@ SH_DECL_MANUALHOOK2(SendNetMessage, 15, 0, 0, bool, CNetMessage *, NetChannelBuf
 SH_DECL_MANUALHOOK2(SendNetMessage, 16, 0, 0, bool, CNetMessage *, NetChannelBufType_t);
 #endif
 
+struct ClientJoinInfo_t
+{
+	uint64 steamid;
+	double signon_timestamp;
+	int addon;
+};
+
+CUtlVector<ClientJoinInfo_t> g_ClientsPendingAddon; // List of clients who are still downloading addons
+std::set<uint64> g_ClientsWithAddons; // List of clients who already downloaded everything so they don't get reconnects on mapchange/rejoin
+
 MultiAddonManager g_MultiAddonManager;
 INetworkGameServer *g_pNetworkGameServer = nullptr;
 CSteamGameServerAPIContext g_SteamAPI;
@@ -462,6 +472,9 @@ bool MultiAddonManager::AddAddon(const char *pszAddon, bool bRefresh = false)
 
 	m_ExtraAddons.AddToTail(pszAddon);
 
+	g_ClientsWithAddons.clear();
+	Message("Clearing client cache due to addons changing");
+
 	if (bRefresh)
 		RefreshAddons();
 
@@ -482,6 +495,9 @@ bool MultiAddonManager::RemoveAddon(const char *pszAddon, bool bRefresh = false)
 
 	m_ExtraAddons.Remove(index);
 
+	g_ClientsWithAddons.clear();
+	Message("Clearing client cache due to addons changing");
+
 	if (bRefresh)
 		RefreshAddons();
 
@@ -495,6 +511,9 @@ CON_COMMAND_F(mm_extra_addons, "The workshop IDs of extra addons separated by co
 		Msg("%s %s\n", args[0], VectorToString(g_MultiAddonManager.m_ExtraAddons).c_str());
 		return;
 	}
+
+	g_ClientsWithAddons.clear();
+	Message("Clearing client cache due to addons changing");
 
 	StringToVector(args[1], g_MultiAddonManager.m_ExtraAddons);
 
@@ -567,15 +586,6 @@ CServerSideClient *GetClientBySlot(CPlayerSlot slot)
 
 	return pClients->Element(slot.Get());
 }
-
-struct ClientJoinInfo_t
-{
-	uint64 steamid;
-	double signon_timestamp;
-	int addon;
-};
-
-CUtlVector<ClientJoinInfo_t> g_ClientsPendingAddon;
 
 void AddPendingClient(uint64 steamid)
 {
@@ -697,6 +707,9 @@ void* FASTCALL Hook_HostStateRequest(void *a1, void **pRequest)
 float g_flRejoinTimeout = 10.f;
 FAKE_FLOAT_CVAR(mm_extra_addons_timeout, "How long until clients are timed out in between connects for extra addons, requires mm_extra_addons to be used", g_flRejoinTimeout, 10.f, false);
 
+bool g_bCacheClients = false;
+FAKE_FLOAT_CVAR(mm_cache_clients_with_addons, "Whether to cache clients who downloaded all addons, this will prevent reconnects on mapchange/rejoin", g_flRejoinTimeout, false, false);
+
 bool MultiAddonManager::Hook_ClientConnect( CPlayerSlot slot, const char *pszName, uint64 xuid, const char *pszNetworkID, bool unk1, CBufferString *pRejectReason )
 {
 	// We don't have an extra addon set so do nothing here, also don't do anything if we're a listenserver
@@ -709,6 +722,12 @@ bool MultiAddonManager::Hook_ClientConnect( CPlayerSlot slot, const char *pszNam
 		RETURN_META_VALUE(MRES_IGNORED, true);
 
 	Message("Client %s (%lli) connected:\n", pszName, xuid);
+
+	if (g_bCacheClients && g_ClientsWithAddons.find(xuid) != g_ClientsWithAddons.end())
+	{
+		Message("new connection but client was cached earlier so allowing immediately\n");
+		RETURN_META_VALUE(MRES_IGNORED, true);
+	}
 
 	// Store the client's ID temporarily as they will get reconnected once an extra addon is sent
 	// This gets checked for in SendNetMessage so we don't repeatedly send the changelevel signon state for the same addon
@@ -737,6 +756,9 @@ bool MultiAddonManager::Hook_ClientConnect( CPlayerSlot slot, const char *pszNam
 		{
 			Message("reconnected within the interval and has all addons, allowing\n");
 			g_ClientsPendingAddon.FastRemove(index);
+
+			if (g_bCacheClients)
+				g_ClientsWithAddons.insert(xuid);
 		}
 	}
 	else
