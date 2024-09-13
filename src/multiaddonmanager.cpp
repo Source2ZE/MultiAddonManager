@@ -708,7 +708,7 @@ float g_flRejoinTimeout = 10.f;
 FAKE_FLOAT_CVAR(mm_extra_addons_timeout, "How long until clients are timed out in between connects for extra addons, requires mm_extra_addons to be used", g_flRejoinTimeout, 10.f, false);
 
 bool g_bCacheClients = false;
-FAKE_FLOAT_CVAR(mm_cache_clients_with_addons, "Whether to cache clients who downloaded all addons, this will prevent reconnects on mapchange/rejoin", g_flRejoinTimeout, false, false);
+FAKE_BOOL_CVAR(mm_cache_clients_with_addons, "Whether to cache clients who downloaded all addons, this will prevent reconnects on mapchange/rejoin", g_bCacheClients, false, false);
 
 bool MultiAddonManager::Hook_ClientConnect( CPlayerSlot slot, const char *pszName, uint64 xuid, const char *pszNetworkID, bool unk1, CBufferString *pRejectReason )
 {
