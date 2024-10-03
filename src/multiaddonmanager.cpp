@@ -148,10 +148,11 @@ bool MultiAddonManager::Load(PluginId id, ISmmAPI *ismm, char *error, size_t max
 
 	CModule engineModule(ROOTBIN, "engine2");
 
+	// "Discarding pending request '%s, %u'\n"
 #ifdef PLATFORM_WINDOWS
-	const byte HostStateRequest_Sig[] = "\x48\x89\x74\x24\x10\x57\x48\x83\xEC\x30\x33\xF6\x48\x8B\xFA";
+	const byte HostStateRequest_Sig[] = "\x48\x89\x74\x24\x2A\x57\x48\x83\xEC\x2A\x33\xF6\x48\x8B\xFA\x48\x39\x35";
 #else
-	const byte HostStateRequest_Sig[] = "\x55\x48\x89\xE5\x41\x56\x41\x55\x41\x54\x49\x89\xF4\x53\x48\x83\x7F\x30\x00";
+	const byte HostStateRequest_Sig[] = "\x55\x48\x89\xE5\x41\x56\x41\x55\x41\x54\x49\x89\xF4\x53\x48\x83\x7F";
 #endif
 
 	int sig_error;
@@ -638,7 +639,7 @@ bool MultiAddonManager::Hook_SendNetMessage(CNetMessage *pData, NetChannelBufTyp
 	NetMessageInfo_t *info = pData->GetNetMessage()->GetNetMessageInfo();
 
 	// 7 for signon messages
-	if (info->m_MessageId != 7 || g_MultiAddonManager.m_ExtraAddons.Count() == 0 || !CommandLine()->HasParm("-dedicated"))
+	if (info->m_MessageId != net_SignonState || g_MultiAddonManager.m_ExtraAddons.Count() == 0 || !CommandLine()->HasParm("-dedicated"))
 		RETURN_META_VALUE(MRES_IGNORED, true);
 
 	auto pMsg = pData->ToPB<CNETMsg_SignonState>();
