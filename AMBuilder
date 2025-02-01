@@ -16,7 +16,13 @@ for sdk_target in MMSPlugin.sdk_targets:
 
   binary = MMSPlugin.HL2Library(builder, cxx, MMSPlugin.plugin_name, sdk)
   
-  version = subprocess.check_output(['git', 'describe', '--tags', '--long']).decode('ascii').strip()
+  try:
+    version = subprocess.check_output(['git', 'describe', '--tags', '--long']).decode('ascii').strip()
+  except subprocess.SubprocessError as e:
+    version = "1.3-dev"
+    print("git describe failed as there are no tags")
+	
+  print(f'Setting version to "{version}"')
   binary.compiler.defines += ['MULTIADDONMANAGER_VERSION="%s"'%(version)]
 
   target_folder = 'Debug' if builder.options.debug else 'Release'
@@ -49,7 +55,8 @@ for sdk_target in MMSPlugin.sdk_targets:
 
   protoc_builder = builder.tools.Protoc(protoc = sdk_target.protoc, sources = [
     os.path.join(sdk['path'], 'common', 'network_connection.proto'),
-    os.path.join(sdk['path'], 'common', 'networkbasetypes.proto')
+    os.path.join(sdk['path'], 'common', 'networkbasetypes.proto'),
+    os.path.join(sdk['path'], 'game', 'shared', 'gameevents.proto')
   ])
   protoc_builder.protoc.includes += [
     os.path.join(sdk['path'], 'common')

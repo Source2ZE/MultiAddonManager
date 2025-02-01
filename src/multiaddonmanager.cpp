@@ -18,6 +18,7 @@
  */
 
 #include "networkbasetypes.pb.h"
+#include "gameevents.pb.h"
 
 #include <stdio.h>
 #include "multiaddonmanager.h"
@@ -25,6 +26,7 @@
 #include "utils/plat.h"
 #include "networksystem/inetworkserializer.h"
 #include "networksystem/inetworkmessages.h"
+#include "igameeventsystem.h"
 #include "serversideclient.h"
 #include "funchook.h"
 #include "filesystem.h"
@@ -43,7 +45,7 @@ void Message(const char *msg, ...)
 	char buf[1024] = {};
 	V_vsnprintf(buf, sizeof(buf) - 1, msg, args);
 
-	ConColorMsg(Color(0, 255, 200), "[MultiAddonManager] %s", buf);
+	LoggingSystem_Log(0, LS_MESSAGE, Color(0, 255, 200), "[MultiAddonManager] %s", buf);
 
 	va_end(args);
 }
@@ -104,20 +106,23 @@ HostStateRequest_t g_pfnHostStateRequest = nullptr;
 funchook_t *g_pSendNetMessageHook = nullptr;
 funchook_t *g_pHostStateRequestHook = nullptr;
 
-int g_iSendNetMessage;
-
 class GameSessionConfiguration_t { };
 
 SH_DECL_HOOK0_void(IServerGameDLL, GameServerSteamAPIActivated, SH_NOATTRIB, 0);
 SH_DECL_HOOK3_void(INetworkServerService, StartupServer, SH_NOATTRIB, 0, const GameSessionConfiguration_t &, ISource2WorldSession *, const char *);
 SH_DECL_HOOK6(IServerGameClients, ClientConnect, SH_NOATTRIB, 0, bool, CPlayerSlot, const char*, uint64, const char *, bool, CBufferString *);
 SH_DECL_HOOK3_void(IServerGameDLL, GameFrame, SH_NOATTRIB, 0, bool, bool, bool);
+SH_DECL_HOOK8_void(IGameEventSystem, PostEventAbstract, SH_NOATTRIB, 0, CSplitScreenSlot, bool, int, const uint64 *,
+	INetworkMessageInternal *, const CNetMessage *, unsigned long, NetChannelBufType_t);
+SH_DECL_HOOK2(IGameEventManager2, LoadEventsFromFile, SH_NOATTRIB, 0, int, const char *, bool);
 
 #ifdef PLATFORM_WINDOWS
 constexpr int g_iSendNetMessageOffset = 15;
 #else
 constexpr int g_iSendNetMessageOffset = 16;
 #endif
+
+int g_iLoadEventsFromFileId = -1;
 
 struct ClientJoinInfo_t
 {
@@ -127,12 +132,14 @@ struct ClientJoinInfo_t
 };
 
 CUtlVector<ClientJoinInfo_t> g_ClientsPendingAddon; // List of clients who are still downloading addons
-std::set<uint64> g_ClientsWithAddons; // List of clients who already downloaded everything so they don't get reconnects on mapchange/rejoin
+std::unordered_set<uint64> g_ClientsWithAddons; // List of clients who already downloaded everything so they don't get reconnects on mapchange/rejoin
 
 MultiAddonManager g_MultiAddonManager;
 INetworkGameServer *g_pNetworkGameServer = nullptr;
 CSteamGameServerAPIContext g_SteamAPI;
 CGlobalVars *gpGlobals = nullptr;
+IGameEventSystem *g_pGameEventSystem = nullptr;
+IGameEventManager2 *g_pGameEventManager = nullptr;
 
 // Interface to other plugins
 CAddonManagerInterface g_AddonManagerInterface;
@@ -148,12 +155,14 @@ bool MultiAddonManager::Load(PluginId id, ISmmAPI *ismm, char *error, size_t max
 	GET_V_IFACE_ANY(GetServerFactory, g_pSource2Server, ISource2Server, SOURCE2SERVER_INTERFACE_VERSION);
 	GET_V_IFACE_ANY(GetEngineFactory, g_pNetworkServerService, INetworkServerService, NETWORKSERVERSERVICE_INTERFACE_VERSION);
 	GET_V_IFACE_ANY(GetEngineFactory, g_pNetworkMessages, INetworkMessages, NETWORKMESSAGES_INTERFACE_VERSION);
+	GET_V_IFACE_ANY(GetEngineFactory, g_pGameEventSystem, IGameEventSystem, GAMEEVENTSYSTEM_INTERFACE_VERSION);
 	GET_V_IFACE_ANY(GetFileSystemFactory, g_pFullFileSystem, IFileSystem, FILESYSTEM_INTERFACE_VERSION);
 
 	// Required to get the IMetamodListener events
 	g_SMAPI->AddListener( this, this );
 
 	CModule engineModule(ROOTBIN, "engine2");
+	CModule serverModule(GAMEBIN, "server");
 
 	// "Discarding pending request '%s, %u'\n"
 #ifdef PLATFORM_WINDOWS
@@ -181,6 +190,7 @@ bool MultiAddonManager::Load(PluginId id, ISmmAPI *ismm, char *error, size_t max
 	funchook_prepare(g_pHostStateRequestHook, (void**)&g_pfnHostStateRequest, (void*)Hook_HostStateRequest);
 	funchook_install(g_pHostStateRequestHook, 0);
 
+	// We're using funchook even though it's a virtual function because it can be called on a different thread and SourceHook isn't thread-safe
 	void **pServerSideClientVTable = (void **)engineModule.FindVirtualTable("CServerSideClient");
 	g_pfnSendNetMessage = (SendNetMessage_t)pServerSideClientVTable[g_iSendNetMessageOffset];
 
@@ -192,6 +202,14 @@ bool MultiAddonManager::Load(PluginId id, ISmmAPI *ismm, char *error, size_t max
 	SH_ADD_HOOK(INetworkServerService, StartupServer, g_pNetworkServerService, SH_MEMBER(this, &MultiAddonManager::Hook_StartupServer), true);
 	SH_ADD_HOOK(IServerGameClients, ClientConnect, g_pSource2GameClients, SH_MEMBER(this, &MultiAddonManager::Hook_ClientConnect), false);
 	SH_ADD_HOOK(IServerGameDLL, GameFrame, g_pSource2Server, SH_MEMBER(this, &MultiAddonManager::Hook_GameFrame), true);
+	SH_ADD_HOOK(IGameEventSystem, PostEventAbstract, g_pGameEventSystem, SH_MEMBER(this, &MultiAddonManager::Hook_PostEvent), false);
+
+	auto pCGameEventManagerVTable = (IGameEventManager2*)serverModule.FindVirtualTable("CGameEventManager");
+
+	if (!pCGameEventManagerVTable)
+		return false;
+
+	g_iLoadEventsFromFileId = SH_ADD_DVPHOOK(IGameEventManager2, LoadEventsFromFile, pCGameEventManagerVTable, SH_MEMBER(this, &MultiAddonManager::Hook_LoadEventsFromFile), false);
 
 	if (late)
 	{
@@ -218,7 +236,8 @@ bool MultiAddonManager::Unload(char *error, size_t maxlen)
 	SH_REMOVE_HOOK(INetworkServerService, StartupServer, g_pNetworkServerService, SH_MEMBER(this, &MultiAddonManager::Hook_StartupServer), true);
 	SH_REMOVE_HOOK(IServerGameClients, ClientConnect, g_pSource2GameClients, SH_MEMBER(this, &MultiAddonManager::Hook_ClientConnect), false);
 	SH_REMOVE_HOOK(IServerGameDLL, GameFrame, g_pSource2Server, SH_MEMBER(this, &MultiAddonManager::Hook_GameFrame), true);
-	SH_REMOVE_HOOK_ID(g_iSendNetMessage);
+	SH_REMOVE_HOOK(IGameEventSystem, PostEventAbstract, g_pGameEventSystem, SH_MEMBER(this, &MultiAddonManager::Hook_PostEvent), false);
+	SH_REMOVE_HOOK_ID(g_iLoadEventsFromFileId);
 
 	if (g_pHostStateRequestHook)
 	{
@@ -789,6 +808,42 @@ void MultiAddonManager::Hook_GameFrame(bool simulating, bool bFirstTick, bool bL
 		s_flTime = Plat_FloatTime();
 		PrintDownloadProgress();
 	}
+}
+
+bool g_bBlockDisconnectMsgs = false;
+FAKE_BOOL_CVAR(mm_block_disconnect_messages, "Whether to block \"loop shutdown\" disconnect messages", g_bBlockDisconnectMsgs, false, false);
+
+void MultiAddonManager::Hook_PostEvent(CSplitScreenSlot nSlot, bool bLocalOnly, int nClientCount, const uint64 *clients,
+	INetworkMessageInternal *pEvent, const CNetMessage *pData, unsigned long nSize, NetChannelBufType_t bufType)
+{
+	NetMessageInfo_t *info = pEvent->GetNetMessageInfo();
+
+	if (g_bBlockDisconnectMsgs && info->m_MessageId == GE_Source1LegacyGameEvent)
+	{
+		auto pMsg = pData->ToPB<CMsgSource1LegacyGameEvent>();
+
+		static int sDisconnectId = g_pGameEventManager->LookupEventId("player_disconnect");
+
+		if (pMsg->eventid() == sDisconnectId)
+		{
+			IGameEvent *pEvent = g_pGameEventManager->UnserializeEvent(*pMsg);
+
+			// This will prevent "loop shutdown" messages in the chat when clients reconnect
+			// As far as we're aware, there are no other cases where this reason is used
+			if (pEvent->GetInt("reason") == NETWORK_DISCONNECT_LOOPSHUTDOWN)
+				*(uint64*)clients = 0;
+		}
+	}
+
+	RETURN_META(MRES_IGNORED);
+}
+
+int MultiAddonManager::Hook_LoadEventsFromFile(const char *filename, bool bSearchAll)
+{
+	if (!g_pGameEventManager)
+		g_pGameEventManager = META_IFACEPTR(IGameEventManager2);
+
+	RETURN_META_VALUE(MRES_IGNORED, 0);
 }
 
 const char *MultiAddonManager::GetLicense()
