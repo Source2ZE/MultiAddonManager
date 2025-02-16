@@ -82,7 +82,7 @@ public: //hooks
 		INetworkMessageInternal *pEvent, const CNetMessage *pData, unsigned long nSize, NetChannelBufType_t bufType);
 	int Hook_LoadEventsFromFile(const char *filename, bool bSearchAll);
 
-	void BuildAddonPath(const char *pszAddon, char *buf, size_t len);
+	void BuildAddonPath(const char *pszAddon, char *buf, size_t len, bool bLegacy);
 	bool MountAddon(const char *pszAddon, bool bAddToTail);
 	bool UnmountAddon(const char *pszAddon);
 	bool AddAddon(const char *pszAddon, bool bRefresh);

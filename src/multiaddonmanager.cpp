@@ -264,13 +264,13 @@ void *MultiAddonManager::OnMetamodQuery(const char *iface, int *ret)
 	return &g_AddonManagerInterface;
 }
 
-void MultiAddonManager::BuildAddonPath(const char *pszAddon, char *buf, size_t len)
+void MultiAddonManager::BuildAddonPath(const char *pszAddon, char *buf, size_t len, bool bLegacy = false)
 {
 	// The workshop on a dedicated server is stored relative to the working directory for whatever reason
 	static CBufferStringGrowable<MAX_PATH> s_sWorkingDir;
 	ExecuteOnce(g_pFullFileSystem->GetSearchPath("EXECUTABLE_PATH", GET_SEARCH_PATH_ALL, s_sWorkingDir, 1));
 
-	V_snprintf(buf, len, "%ssteamapps/workshop/content/730/%s/%s.vpk", s_sWorkingDir.Get(), pszAddon, pszAddon);
+	V_snprintf(buf, len, "%ssteamapps/workshop/content/730/%s/%s%s.vpk", s_sWorkingDir.Get(), pszAddon, pszAddon, bLegacy ? "" : "_dir");
 }
 
 bool g_bAddonMountDownload = false;
@@ -296,13 +296,24 @@ bool MultiAddonManager::MountAddon(const char *pszAddon, bool bAddToTail = false
 		DownloadAddon(pszAddon, false, true);
 	}
 
-	char path[MAX_PATH];
-	BuildAddonPath(pszAddon, path, sizeof(path));
+	char pszPath[MAX_PATH];
+	BuildAddonPath(pszAddon, pszPath, sizeof(pszPath));
 
-	if (!g_pFullFileSystem->FileExists(path))
+	if (!g_pFullFileSystem->FileExists(pszPath))
 	{
-		Panic("%s: Addon %s not found at %s\n", __func__, pszAddon, path);
-		return false;
+		// This might be a legacy addon (before mutli-chunk was introduced), try again without the _dir
+		BuildAddonPath(pszAddon, pszPath, sizeof(pszPath), true);
+
+		if (!g_pFullFileSystem->FileExists(pszPath))
+		{
+			Panic("%s: Addon %s not found at %s\n", __func__, pszAddon, pszPath);
+			return false;
+		}
+	}
+	else
+	{
+		// We still need it without _dir anyway because the filesystem will append suffixes if needed
+		BuildAddonPath(pszAddon, pszPath, sizeof(pszPath), true);
 	}
 
 	if (m_MountedAddons.Find(pszAddon) != -1)
@@ -311,9 +322,9 @@ bool MultiAddonManager::MountAddon(const char *pszAddon, bool bAddToTail = false
 		return false;
 	}
 
-	Message("Adding search path: %s\n", path);
+	Message("Adding search path: %s\n", pszPath);
 
-	g_pFullFileSystem->AddSearchPath(path, "GAME", bAddToTail ? PATH_ADD_TO_TAIL : PATH_ADD_TO_HEAD, SEARCH_PATH_PRIORITY_VPK);
+	g_pFullFileSystem->AddSearchPath(pszPath, "GAME", bAddToTail ? PATH_ADD_TO_TAIL : PATH_ADD_TO_HEAD, SEARCH_PATH_PRIORITY_VPK);
 	m_MountedAddons.AddToTail(pszAddon);
 
 	return true;
