@@ -26,6 +26,7 @@
 #include "utils/plat.h"
 #include "networksystem/inetworkserializer.h"
 #include "networksystem/inetworkmessages.h"
+#include "convar.h"
 #include "hoststate.h"
 #include "igameeventsystem.h"
 #include "serversideclient.h"
@@ -37,6 +38,11 @@
 #include "iserver.h"
 
 #include "tier0/memdbgon.h"
+
+CConVar<bool> mm_addon_mount_download("mm_addon_mount_download", FCVAR_NONE, "Whether to download an addon upon mounting even if it's installed", false);
+CConVar<bool> mm_block_disconnect_messages("mm_block_disconnect_messages", FCVAR_NONE, "Whether to block \"loop shutdown\" disconnect messages", false);
+CConVar<bool> mm_cache_clients_with_addons("mm_cache_clients_with_addons", FCVAR_NONE, "Whether to cache clients who downloaded all addons, this will prevent reconnects on mapchange/rejoin", false);
+CConVar<float> mm_extra_addons_timeout("mm_extra_addons_timeout", FCVAR_NONE, "How long until clients are timed out in between connects for extra addons, requires mm_extra_addons to be used", 10.f);
 
 void Message(const char *msg, ...)
 {
@@ -280,9 +286,6 @@ void MultiAddonManager::BuildAddonPath(const char *pszAddon, char *buf, size_t l
 	V_snprintf(buf, len, "%ssteamapps/workshop/content/730/%s/%s%s.vpk", s_sWorkingDir.Get(), pszAddon, pszAddon, bLegacy ? "" : "_dir");
 }
 
-bool g_bAddonMountDownload = false;
-FAKE_BOOL_CVAR(mm_addon_mount_download, "Whether to download an addon upon mounting even if it's installed", g_bAddonMountDownload, false, false);
-
 bool MultiAddonManager::MountAddon(const char *pszAddon, bool bAddToTail = false)
 {
 	if (!pszAddon || !*pszAddon)
@@ -297,7 +300,7 @@ bool MultiAddonManager::MountAddon(const char *pszAddon, bool bAddToTail = false
 		DownloadAddon(pszAddon, true, true);
 		return false;
 	}
-	else if (g_bAddonMountDownload)
+	else if (mm_addon_mount_download.Get())
 	{
 		// Queue a download anyway in case the addon got an update and the server desires this, but don't reload the map when done
 		DownloadAddon(pszAddon, false, true);
@@ -748,12 +751,6 @@ void FASTCALL Hook_SetPendingHostStateRequest(int numRequest, CHostStateRequest 
 	g_pfnSetPendingHostStateRequest(numRequest, pRequest);
 }
 
-float g_flRejoinTimeout = 10.f;
-FAKE_FLOAT_CVAR(mm_extra_addons_timeout, "How long until clients are timed out in between connects for extra addons, requires mm_extra_addons to be used", g_flRejoinTimeout, 10.f, false);
-
-bool g_bCacheClients = false;
-FAKE_BOOL_CVAR(mm_cache_clients_with_addons, "Whether to cache clients who downloaded all addons, this will prevent reconnects on mapchange/rejoin", g_bCacheClients, false, false);
-
 bool MultiAddonManager::Hook_ClientConnect( CPlayerSlot slot, const char *pszName, uint64 xuid, const char *pszNetworkID, bool unk1, CBufferString *pRejectReason )
 {
 	// We don't have an extra addon set so do nothing here, also don't do anything if we're a listenserver
@@ -767,7 +764,7 @@ bool MultiAddonManager::Hook_ClientConnect( CPlayerSlot slot, const char *pszNam
 
 	Message("Client %s (%lli) connected:\n", pszName, xuid);
 
-	if (g_bCacheClients && g_ClientsWithAddons.find(xuid) != g_ClientsWithAddons.end())
+	if (mm_cache_clients_with_addons.Get() && g_ClientsWithAddons.find(xuid) != g_ClientsWithAddons.end())
 	{
 		Message("new connection but client was cached earlier so allowing immediately\n");
 		RETURN_META_VALUE(MRES_IGNORED, true);
@@ -786,7 +783,7 @@ bool MultiAddonManager::Hook_ClientConnect( CPlayerSlot slot, const char *pszNam
 		Message("first connection, sending addon %s\n", m_ExtraAddons[0].c_str());
 		AddPendingClient(xuid);
 	}
-	else if ((Plat_FloatTime() - pPendingClient->signon_timestamp) < g_flRejoinTimeout)
+	else if ((Plat_FloatTime() - pPendingClient->signon_timestamp) < mm_extra_addons_timeout.Get())
 	{
 		// Client reconnected within the timeout interval
 		// If they already have the addon this happens almost instantly after receiving the signon message with the addon
@@ -801,7 +798,7 @@ bool MultiAddonManager::Hook_ClientConnect( CPlayerSlot slot, const char *pszNam
 			Message("reconnected within the interval and has all addons, allowing\n");
 			g_ClientsPendingAddon.FastRemove(index);
 
-			if (g_bCacheClients)
+			if (mm_cache_clients_with_addons.Get())
 				g_ClientsWithAddons.insert(xuid);
 		}
 	}
@@ -825,15 +822,12 @@ void MultiAddonManager::Hook_GameFrame(bool simulating, bool bFirstTick, bool bL
 	}
 }
 
-bool g_bBlockDisconnectMsgs = false;
-FAKE_BOOL_CVAR(mm_block_disconnect_messages, "Whether to block \"loop shutdown\" disconnect messages", g_bBlockDisconnectMsgs, false, false);
-
 void MultiAddonManager::Hook_PostEvent(CSplitScreenSlot nSlot, bool bLocalOnly, int nClientCount, const uint64 *clients,
 	INetworkMessageInternal *pEvent, const CNetMessage *pData, unsigned long nSize, NetChannelBufType_t bufType)
 {
 	NetMessageInfo_t *info = pEvent->GetNetMessageInfo();
 
-	if (g_bBlockDisconnectMsgs && info->m_MessageId == GE_Source1LegacyGameEvent)
+	if (mm_block_disconnect_messages.Get() && info->m_MessageId == GE_Source1LegacyGameEvent)
 	{
 		auto pMsg = pData->ToPB<CMsgSource1LegacyGameEvent>();
 
