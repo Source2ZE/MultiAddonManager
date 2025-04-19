@@ -556,21 +556,16 @@ bool MultiAddonManager::RemoveAddon(const char *pszAddon, bool bRefresh = false)
 	return true;
 }
 
-CON_COMMAND_F(mm_extra_addons, "The workshop IDs of extra addons separated by commas, addons will be downloaded (if not present) and mounted", FCVAR_LINKED_CONCOMMAND | FCVAR_SPONLY)
-{
-	if (args.ArgC() < 2)
+CConVar<CUtlString> mm_extra_addons("mm_extra_addons", FCVAR_NONE, "The workshop IDs of extra addons separated by commas, addons will be downloaded (if not present) and mounted", CUtlString(""),
+	[](CConVar<CUtlString> *cvar, CSplitScreenSlot slot, const CUtlString *new_val, const CUtlString *old_val)
 	{
-		Msg("%s %s\n", args[0], VectorToString(g_MultiAddonManager.m_ExtraAddons).c_str());
-		return;
-	}
+		g_ClientsWithAddons.clear();
+		Message("Clearing client cache due to addons changing");
 
-	g_ClientsWithAddons.clear();
-	Message("Clearing client cache due to addons changing");
+		StringToVector(new_val->Get(), g_MultiAddonManager.m_ExtraAddons);
 
-	StringToVector(args[1], g_MultiAddonManager.m_ExtraAddons);
-
-	g_MultiAddonManager.RefreshAddons();
-}
+		g_MultiAddonManager.RefreshAddons();
+	});
 
 CON_COMMAND_F(mm_add_addon, "Add a workshop ID to the extra addon list", FCVAR_LINKED_CONCOMMAND | FCVAR_SPONLY)
 {
@@ -613,30 +608,6 @@ CON_COMMAND_F(mm_print_searchpaths, "Print search paths", FCVAR_GAMEDLL | FCVAR_
 CON_COMMAND_F(mm_print_searchpaths_client, "Print search paths client-side, only usable if you're running the plugin on a listenserver", FCVAR_CLIENTDLL)
 {
 	g_pFullFileSystem->PrintSearchPaths();
-}
-
-CUtlVector<CServerSideClient *> *GetClientList()
-{
-	if (!g_pNetworkGameServer)
-		return nullptr;
-
-#ifdef PLATFORM_WINDOWS
-	static constexpr int offset = 78;
-#else
-	static constexpr int offset = 80;
-#endif
-
-	return (CUtlVector<CServerSideClient *> *)(&g_pNetworkGameServer[offset]);
-}
-
-CServerSideClient *GetClientBySlot(CPlayerSlot slot)
-{
-	CUtlVector<CServerSideClient *> *pClients = GetClientList();
-
-	if (!pClients)
-		return nullptr;
-
-	return pClients->Element(slot.Get());
 }
 
 void AddPendingClient(uint64 steamid)
@@ -724,7 +695,7 @@ bool FASTCALL Hook_SendNetMessage(CServerSideClient *pClient, CNetMessage *pData
 void FASTCALL Hook_SetPendingHostStateRequest(int numRequest, CHostStateRequest *pRequest)
 {
 	if (g_MultiAddonManager.m_ExtraAddons.Count() == 0)
-		g_pfnSetPendingHostStateRequest(numRequest, pRequest);
+		return g_pfnSetPendingHostStateRequest(numRequest, pRequest);
 
 	CUtlVector<std::string> vecAddons;
 	StringToVector(pRequest->m_Addons.Get(), vecAddons);
