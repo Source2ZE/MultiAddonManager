@@ -26,6 +26,7 @@
 #include "utils/plat.h"
 #include "networksystem/inetworkserializer.h"
 #include "networksystem/inetworkmessages.h"
+#include "hoststate.h"
 #include "igameeventsystem.h"
 #include "serversideclient.h"
 #include "funchook.h"
@@ -95,16 +96,16 @@ std::string VectorToString(CUtlVector<std::string> &vector)
 }
 
 typedef bool (FASTCALL *SendNetMessage_t)(CServerSideClient *, CNetMessage*, NetChannelBufType_t);
-typedef void *(FASTCALL *HostStateRequest_t)(void*, void**);
+typedef void (FASTCALL *HostStateRequest_t)(int, CHostStateRequest*);
 
 bool FASTCALL Hook_SendNetMessage(CServerSideClient *pClient, CNetMessage *pData, NetChannelBufType_t bufType);
-void *FASTCALL Hook_HostStateRequest(void *a1, void **pRequest);
+void FASTCALL Hook_SetPendingHostStateRequest(int, CHostStateRequest*);
 
 SendNetMessage_t g_pfnSendNetMessage = nullptr;
-HostStateRequest_t g_pfnHostStateRequest = nullptr;
+HostStateRequest_t g_pfnSetPendingHostStateRequest = nullptr;
 
 funchook_t *g_pSendNetMessageHook = nullptr;
-funchook_t *g_pHostStateRequestHook = nullptr;
+funchook_t *g_pSetPendingHostStateRequest = nullptr;
 
 class GameSessionConfiguration_t { };
 
@@ -173,9 +174,9 @@ bool MultiAddonManager::Load(PluginId id, ISmmAPI *ismm, char *error, size_t max
 
 	int sig_error;
 
-	g_pfnHostStateRequest = (HostStateRequest_t)engineModule.FindSignature(HostStateRequest_Sig, sizeof(HostStateRequest_Sig) - 1, sig_error);
+	g_pfnSetPendingHostStateRequest = (HostStateRequest_t)engineModule.FindSignature(HostStateRequest_Sig, sizeof(HostStateRequest_Sig) - 1, sig_error);
 
-	if (!g_pfnHostStateRequest)
+	if (!g_pfnSetPendingHostStateRequest)
 	{
 		V_snprintf(error, maxlen, "Could not find the signature for HostStateRequest\n");
 		Panic("%s", error);
@@ -186,9 +187,9 @@ bool MultiAddonManager::Load(PluginId id, ISmmAPI *ismm, char *error, size_t max
 		Panic("Signature for HostStateRequest occurs multiple times! Using first match but this might end up crashing!\n");
 	}
 
-	g_pHostStateRequestHook = funchook_create();
-	funchook_prepare(g_pHostStateRequestHook, (void**)&g_pfnHostStateRequest, (void*)Hook_HostStateRequest);
-	funchook_install(g_pHostStateRequestHook, 0);
+	g_pSetPendingHostStateRequest = funchook_create();
+	funchook_prepare(g_pSetPendingHostStateRequest, (void**)&g_pfnSetPendingHostStateRequest, (void*)Hook_SetPendingHostStateRequest);
+	funchook_install(g_pSetPendingHostStateRequest, 0);
 
 	// We're using funchook even though it's a virtual function because it can be called on a different thread and SourceHook isn't thread-safe
 	void **pServerSideClientVTable = (void **)engineModule.FindVirtualTable("CServerSideClient");
@@ -239,12 +240,18 @@ bool MultiAddonManager::Unload(char *error, size_t maxlen)
 	SH_REMOVE_HOOK(IGameEventSystem, PostEventAbstract, g_pGameEventSystem, SH_MEMBER(this, &MultiAddonManager::Hook_PostEvent), false);
 	SH_REMOVE_HOOK_ID(g_iLoadEventsFromFileId);
 
-	if (g_pHostStateRequestHook)
+	if (g_pSetPendingHostStateRequest)
 	{
-		funchook_uninstall(g_pHostStateRequestHook, 0);
-		funchook_destroy(g_pHostStateRequestHook);
+		funchook_uninstall(g_pSetPendingHostStateRequest, 0);
+		funchook_destroy(g_pSetPendingHostStateRequest);
 	}
 
+	if (g_pSendNetMessageHook)
+	{
+		funchook_uninstall(g_pSendNetMessageHook, 0);
+		funchook_destroy(g_pSendNetMessageHook);
+	}
+	
 	return true;
 }
 
@@ -711,19 +718,16 @@ bool FASTCALL Hook_SendNetMessage(CServerSideClient *pClient, CNetMessage *pData
 	return g_pfnSendNetMessage(pClient, pData, bufType);
 }
 
-void* FASTCALL Hook_HostStateRequest(void *a1, void **pRequest)
+void FASTCALL Hook_SetPendingHostStateRequest(int numRequest, CHostStateRequest *pRequest)
 {
 	if (g_MultiAddonManager.m_ExtraAddons.Count() == 0)
-		return g_pfnHostStateRequest(a1, pRequest);
-
-	// This offset hasn't changed in 6 years so it should be safe
-	CUtlString *psAddonString = (CUtlString *)(pRequest + 11);
+		g_pfnSetPendingHostStateRequest(numRequest, pRequest);
 
 	CUtlVector<std::string> vecAddons;
-	StringToVector(psAddonString->Get(), vecAddons);
+	StringToVector(pRequest->m_Addons.Get(), vecAddons);
 
 	// Clear the string just in case it wasn't somehow, like when reloading the map
-	psAddonString->Clear();
+	pRequest->m_Addons.Clear();
 
 	std::string sExtraAddonString = VectorToString(g_MultiAddonManager.m_ExtraAddons);
 
@@ -731,17 +735,17 @@ void* FASTCALL Hook_HostStateRequest(void *a1, void **pRequest)
 	if (vecAddons.Count() == 0 || g_MultiAddonManager.m_ExtraAddons.HasElement(vecAddons[0]))
 	{
 		Message("%s: setting addon string to \"%s\"\n", __func__, sExtraAddonString.c_str());
-		psAddonString->Set(sExtraAddonString.c_str());
+		pRequest->m_Addons = sExtraAddonString.c_str();
 		g_MultiAddonManager.ClearCurrentWorkshopMap();
 	}
 	else
 	{
 		Message("%s: appending \"%s\" to addon string \"%s\"\n", __func__, sExtraAddonString.c_str(), vecAddons[0].c_str());
-		psAddonString->Format("%s,%s", vecAddons[0].c_str(), sExtraAddonString.c_str());
+		pRequest->m_Addons.Format("%s,%s", vecAddons[0].c_str(), sExtraAddonString.c_str());
 		g_MultiAddonManager.SetCurrentWorkshopMap(vecAddons[0].c_str());
 	}
 
-	return g_pfnHostStateRequest(a1, pRequest);
+	g_pfnSetPendingHostStateRequest(numRequest, pRequest);
 }
 
 float g_flRejoinTimeout = 10.f;
