@@ -217,16 +217,6 @@ bool MultiAddonManager::Load(PluginId id, ISmmAPI *ismm, char *error, size_t max
 	funchook_prepare(g_pSendNetMessageHook, (void**)&g_pfnSendNetMessage, (void*)Hook_SendNetMessage);
 	funchook_install(g_pSendNetMessageHook, 0);
 
-	if (!g_pfnSendNetMessage)
-	{
-		V_snprintf(error, maxlen, "Could not find the signature for SendNetMessage\n");
-		Panic("%s", error);
-		return false;
-	}
-	else if (sig_error == SIG_FOUND_MULTIPLE)
-	{
-		Panic("Signature for SendNetMessage occurs multiple times! Using first match but this might end up crashing!\n");
-	}
 	SH_ADD_HOOK(IServerGameDLL, GameServerSteamAPIActivated, g_pSource2Server, SH_MEMBER(this, &MultiAddonManager::Hook_GameServerSteamAPIActivated), false);
 	SH_ADD_HOOK(INetworkServerService, StartupServer, g_pNetworkServerService, SH_MEMBER(this, &MultiAddonManager::Hook_StartupServer), true);
 	SH_ADD_HOOK(IServerGameClients, ClientConnect, g_pSource2GameClients, SH_MEMBER(this, &MultiAddonManager::Hook_ClientConnect), false);
