@@ -724,12 +724,13 @@ void FASTCALL Hook_SetPendingHostStateRequest(int numRequest, CHostStateRequest 
 	// We can use this information to always be aware of what the original addon is.
 	
 	if (!pRequest->m_pKV)
-		g_MultiAddonManager.ClearCurrentWorkshopMap();
-	else if (!pRequest->m_pKV->FindKey("ChangeLevel", false))
 	{
-		KeyValues *mapWorkshop = pRequest->m_pKV->FindKey("map_workshop", false);
-		if (mapWorkshop)
-			g_MultiAddonManager.SetCurrentWorkshopMap(mapWorkshop->GetString("customgamemode", ""));
+		g_MultiAddonManager.ClearCurrentWorkshopMap();
+	}
+	else if (V_stricmp(pRequest->m_pKV->GetName(), "ChangeLevel"))
+	{
+		if (!V_stricmp(pRequest->m_pKV->GetName(), "map_workshop"))
+			g_MultiAddonManager.SetCurrentWorkshopMap(pRequest->m_pKV->GetString("customgamemode", ""));
 		else
 			g_MultiAddonManager.ClearCurrentWorkshopMap();
 	}
@@ -738,7 +739,9 @@ void FASTCALL Hook_SetPendingHostStateRequest(int numRequest, CHostStateRequest 
 
 	// Rebuild the addon list. We always start with the original addon.
 	if (g_MultiAddonManager.GetCurrentWorkshopMap().empty())
+	{
 		pRequest->m_Addons = VectorToString(g_MultiAddonManager.m_ExtraAddons).c_str();
+	}
 	else
 	{
 		// Don't add the same addon twice. Hopefully no server owner is diabolical enough to do things like `map de_dust2 customgamemode=1234,5678`.
