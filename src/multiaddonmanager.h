@@ -76,6 +76,7 @@ public:
 	const char *GetLogTag();
 
 	CUtlVector<std::string> m_ExtraAddons;
+	// List of addons mounted by the plugin. Does not contain the original server mounted addon.
 	CUtlVector<std::string> m_MountedAddons;
 private:
 	CUtlVector<PublishedFileId_t> m_ImportantDownloads; // Important addon downloads that will trigger a map reload when finished

@@ -301,8 +301,22 @@ bool MultiAddonManager::MountAddon(const char *pszAddon, bool bAddToTail = false
 	if (!pszAddon || !*pszAddon)
 		return false;
 
+	CUtlVector<std::string> serverMountedAddons;
+	StringToVector(this->m_sCurrentWorkshopMap.c_str(), serverMountedAddons);
+	if (serverMountedAddons.Find(pszAddon) != -1)
+	{
+		Message("%s: Addon %s is already mounted by the server\n", __func__, pszAddon);
+		return false;
+	}
+
 	PublishedFileId_t iAddon = V_StringToUint64(pszAddon, 0);
 	uint32 iAddonState = g_SteamAPI.SteamUGC()->GetItemState(iAddon);
+
+	if (iAddonState & k_EItemStateLegacyItem)
+	{
+		Message("%s: Addon %s is not compatible with Source 2, skipping\n", __func__, pszAddon);
+		return false;
+	}
 
 	if (!(iAddonState & k_EItemStateInstalled))
 	{
@@ -704,29 +718,35 @@ bool FASTCALL Hook_SendNetMessage(CServerSideClient *pClient, CNetMessage *pData
 
 void FASTCALL Hook_SetPendingHostStateRequest(int numRequest, CHostStateRequest *pRequest)
 {
+	// When IVEngineServer::ChangeLevel is called by the plugin or the server code,
+	// (which happens at the end of a map), the server-defined addon does not change.
+	// Also, host state requests coming from that function will always have "ChangeLevel" in its KV.
+	// We can use this information to always be aware of what the original addon is.
+	
+	if (!pRequest->m_pKV)
+		g_MultiAddonManager.ClearCurrentWorkshopMap();
+	else if (!pRequest->m_pKV->FindKey("ChangeLevel", false))
+	{
+		KeyValues *mapWorkshop = pRequest->m_pKV->FindKey("map_workshop", false);
+		if (mapWorkshop)
+			g_MultiAddonManager.SetCurrentWorkshopMap(mapWorkshop->GetString("customgamemode", ""));
+		else
+			g_MultiAddonManager.ClearCurrentWorkshopMap();
+	}
 	if (g_MultiAddonManager.m_ExtraAddons.Count() == 0)
 		return g_pfnSetPendingHostStateRequest(numRequest, pRequest);
 
-	CUtlVector<std::string> vecAddons;
-	StringToVector(pRequest->m_Addons.Get(), vecAddons);
-
-	// Clear the string just in case it wasn't somehow, like when reloading the map
-	pRequest->m_Addons.Clear();
-
-	std::string sExtraAddonString = VectorToString(g_MultiAddonManager.m_ExtraAddons);
-
-	// If it's empty or the first addon in the string is ours, it means we're on a default map
-	if (vecAddons.Count() == 0 || g_MultiAddonManager.m_ExtraAddons.HasElement(vecAddons[0]))
-	{
-		Message("%s: setting addon string to \"%s\"\n", __func__, sExtraAddonString.c_str());
-		pRequest->m_Addons = sExtraAddonString.c_str();
-		g_MultiAddonManager.ClearCurrentWorkshopMap();
-	}
+	// Rebuild the addon list. We always start with the original addon.
+	if (g_MultiAddonManager.GetCurrentWorkshopMap().empty())
+		pRequest->m_Addons = VectorToString(g_MultiAddonManager.m_ExtraAddons).c_str();
 	else
 	{
-		Message("%s: appending \"%s\" to addon string \"%s\"\n", __func__, sExtraAddonString.c_str(), vecAddons[0].c_str());
-		pRequest->m_Addons.Format("%s,%s", vecAddons[0].c_str(), sExtraAddonString.c_str());
-		g_MultiAddonManager.SetCurrentWorkshopMap(vecAddons[0].c_str());
+		// Don't add the same addon twice. Hopefully no server owner is diabolical enough to do things like `map de_dust2 customgamemode=1234,5678`.
+		CUtlVector<std::string> newAddons;
+		newAddons.CopyArray(g_MultiAddonManager.m_ExtraAddons.Base(), g_MultiAddonManager.m_ExtraAddons.Count());
+		newAddons.FindAndRemove(g_MultiAddonManager.GetCurrentWorkshopMap().c_str());
+		newAddons.AddToHead(g_MultiAddonManager.GetCurrentWorkshopMap().c_str());
+		pRequest->m_Addons = VectorToString(newAddons).c_str();
 	}
 
 	g_pfnSetPendingHostStateRequest(numRequest, pRequest);
