@@ -59,7 +59,7 @@ public: //hooks
 	bool RemoveAddon(const char *pszAddon, bool bRefresh);
 	bool DownloadAddon(const char *pszAddon, bool bImportant, bool bForce);
 	void PrintDownloadProgress();
-	void RefreshAddons(bool bReloadMap);
+	void RefreshAddons(bool bReloadMap = false);
 	void ClearAddons();
 	void ReloadMap();
 	std::string GetCurrentWorkshopMap() { return m_sCurrentWorkshopMap; }

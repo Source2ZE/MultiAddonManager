@@ -141,6 +141,18 @@ struct ClientJoinInfo_t
 CUtlVector<ClientJoinInfo_t> g_ClientsPendingAddon; // List of clients who are still downloading addons
 std::unordered_set<uint64> g_ClientsWithAddons; // List of clients who already downloaded everything so they don't get reconnects on mapchange/rejoin
 
+CConVar<CUtlString> mm_extra_addons("mm_extra_addons", FCVAR_NONE, "The workshop IDs of extra addons separated by commas, addons will be downloaded (if not present) and mounted", CUtlString(""),
+	[](CConVar<CUtlString> *cvar, CSplitScreenSlot slot, const CUtlString *new_val, const CUtlString *old_val)
+	{
+		g_ClientsWithAddons.clear();
+		Message("Clearing client cache due to addons changing");
+
+		StringToVector(new_val->Get(), g_MultiAddonManager.m_ExtraAddons);
+
+		g_MultiAddonManager.RefreshAddons();
+	});
+
+
 MultiAddonManager g_MultiAddonManager;
 INetworkGameServer *g_pNetworkGameServer = nullptr;
 CSteamGameServerAPIContext g_SteamAPI;
@@ -451,7 +463,7 @@ bool MultiAddonManager::DownloadAddon(const char *pszAddon, bool bImportant = fa
 	return true;
 }
 
-void MultiAddonManager::RefreshAddons(bool bReloadMap = false)
+void MultiAddonManager::RefreshAddons(bool bReloadMap)
 {
 	if (!g_SteamAPI.SteamUGC())
 		return;
@@ -478,6 +490,9 @@ void MultiAddonManager::ClearAddons()
 {
 	m_ExtraAddons.RemoveAll();
 
+	// Update the convar to reflect the new addon list, but don't trigger the callback
+	mm_extra_addons.GetConVarData()->Value(0)->m_StringValue = VectorToString(m_ExtraAddons).c_str();
+	
 	FOR_EACH_VEC_BACK(m_MountedAddons, i)
 		UnmountAddon(m_MountedAddons[i].c_str());
 }
@@ -548,6 +563,9 @@ bool MultiAddonManager::AddAddon(const char *pszAddon, bool bRefresh = false)
 
 	m_ExtraAddons.AddToTail(pszAddon);
 
+	// Update the convar to reflect the new addon list, but don't trigger the callback
+	mm_extra_addons.GetConVarData()->Value(0)->m_StringValue = VectorToString(m_ExtraAddons).c_str();
+
 	g_ClientsWithAddons.clear();
 	Message("Clearing client cache due to addons changing");
 
@@ -571,6 +589,9 @@ bool MultiAddonManager::RemoveAddon(const char *pszAddon, bool bRefresh = false)
 
 	m_ExtraAddons.Remove(index);
 
+	// Update the convar to reflect the new addon list, but don't trigger the callback
+	mm_extra_addons.GetConVarData()->Value(0)->m_StringValue = VectorToString(m_ExtraAddons).c_str();
+
 	g_ClientsWithAddons.clear();
 	Message("Clearing client cache due to addons changing");
 
@@ -579,17 +600,6 @@ bool MultiAddonManager::RemoveAddon(const char *pszAddon, bool bRefresh = false)
 
 	return true;
 }
-
-CConVar<CUtlString> mm_extra_addons("mm_extra_addons", FCVAR_NONE, "The workshop IDs of extra addons separated by commas, addons will be downloaded (if not present) and mounted", CUtlString(""),
-	[](CConVar<CUtlString> *cvar, CSplitScreenSlot slot, const CUtlString *new_val, const CUtlString *old_val)
-	{
-		g_ClientsWithAddons.clear();
-		Message("Clearing client cache due to addons changing");
-
-		StringToVector(new_val->Get(), g_MultiAddonManager.m_ExtraAddons);
-
-		g_MultiAddonManager.RefreshAddons();
-	});
 
 CON_COMMAND_F(mm_add_addon, "Add a workshop ID to the extra addon list", FCVAR_LINKED_CONCOMMAND | FCVAR_SPONLY)
 {
