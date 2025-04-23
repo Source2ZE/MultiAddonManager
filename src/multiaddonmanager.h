@@ -37,7 +37,7 @@
 #define GAMEBIN "/csgo/bin/linuxsteamrt64/"
 #endif
 
-class MultiAddonManager : public ISmmPlugin, public IMetamodListener
+class MultiAddonManager : public ISmmPlugin, public IMetamodListener, public IMultiAddonManager
 {
 public:
 	bool Load(PluginId id, ISmmAPI *ismm, char *error, size_t maxlen, bool late);
@@ -47,6 +47,8 @@ public: //hooks
 	void Hook_GameServerSteamAPIActivated();
 	void Hook_StartupServer(const GameSessionConfiguration_t &config, ISource2WorldSession *, const char *);
 	bool Hook_ClientConnect(CPlayerSlot slot, const char *pszName, uint64 xuid, const char *pszNetworkID, bool unk1, CBufferString *pRejectReason);
+	void Hook_ClientDisconnect(CPlayerSlot slot, ENetworkDisconnectionReason reason, const char *pszName, uint64 xuid, const char *pszNetworkID);
+	void Hook_ClientActive(CPlayerSlot slot, bool bLoadGame, const char *pszName, uint64 xuid);
 	void Hook_GameFrame(bool simulating, bool bFirstTick, bool bLastTick);
 	void Hook_PostEvent(CSplitScreenSlot nSlot, bool bLocalOnly, int nClientCount, const uint64 *clients,
 		INetworkMessageInternal *pEvent, const CNetMessage *pData, unsigned long nSize, NetChannelBufType_t bufType);
@@ -55,9 +57,10 @@ public: //hooks
 	void BuildAddonPath(const char *pszAddon, char *buf, size_t len, bool bLegacy);
 	bool MountAddon(const char *pszAddon, bool bAddToTail);
 	bool UnmountAddon(const char *pszAddon);
-	bool AddAddon(const char *pszAddon, bool bRefresh);
-	bool RemoveAddon(const char *pszAddon, bool bRefresh);
-	bool DownloadAddon(const char *pszAddon, bool bImportant, bool bForce);
+	bool AddAddon(const char *pszAddon, bool bRefresh = false);
+	bool RemoveAddon(const char *pszAddon, bool bRefresh = false);
+	bool IsAddonMounted(const char *pszAddon, bool bCheckWorkshopMap = false) { return m_MountedAddons.Find(pszAddon) != -1 || (bCheckWorkshopMap && GetCurrentWorkshopMap() == pszAddon);  }
+	bool DownloadAddon(const char *pszAddon, bool bImportant = false, bool bForce = false);
 	void PrintDownloadProgress();
 	void RefreshAddons(bool bReloadMap = false);
 	void ClearAddons();
@@ -65,6 +68,13 @@ public: //hooks
 	std::string GetCurrentWorkshopMap() { return m_sCurrentWorkshopMap; }
 	void SetCurrentWorkshopMap(const char *pszWorkshopID) { m_sCurrentWorkshopMap = pszWorkshopID; }
 	void ClearCurrentWorkshopMap() { m_sCurrentWorkshopMap.clear(); }
+
+	bool HasGCConnection();
+	void AddClientAddon(const char *pszAddon, uint64 xuid = 0, bool bRefresh = false);
+	void RemoveClientAddon(const char *pszAddon, uint64 xuid = 0);
+	void ClearClientAddons(uint64 xuid = 0);
+	void GetClientAddons(CUtlVector<std::string> &addons, uint64 xuid = 0);
+
 public:
 	const char *GetAuthor();
 	const char *GetName();
@@ -76,14 +86,18 @@ public:
 	const char *GetLogTag();
 
 	CUtlVector<std::string> m_ExtraAddons;
+
 	// List of addons mounted by the plugin. Does not contain the original server mounted addon.
 	CUtlVector<std::string> m_MountedAddons;
+	
+	// List of addons to be mounted by the all clients.
+	CUtlVector<std::string> m_GlobalClientAddons;
+
 private:
 	CUtlVector<PublishedFileId_t> m_ImportantDownloads; // Important addon downloads that will trigger a map reload when finished
 	CUtlQueue<PublishedFileId_t> m_DownloadQueue; // Queue of all addon downloads to print progress
 
 	STEAM_GAMESERVER_CALLBACK_MANUAL(MultiAddonManager, OnAddonDownloaded, DownloadItemResult_t, m_CallbackDownloadItemResult);
-
 	// Used when reloading current map
 	std::string m_sCurrentWorkshopMap;
 };
@@ -91,15 +105,3 @@ private:
 extern MultiAddonManager g_MultiAddonManager;
 
 PLUGIN_GLOBALVARS();
-
-// Interface to other plugins
-class CAddonManagerInterface : IMultiAddonManager
-{
-public:
-	virtual bool AddAddon(const char *pszAddon) override;
-	virtual bool RemoveAddon(const char *pszAddon) override;
-	virtual bool IsAddonMounted(const char *pszAddon) override;
-	virtual bool DownloadAddon(const char *pszAddon, bool bImportant, bool bForce) override;
-	virtual void RefreshAddons() override;
-	virtual void ClearAddons() override;
-};
