@@ -102,10 +102,10 @@ std::string VectorToString(CUtlVector<std::string> &vector)
 }
 
 typedef bool (FASTCALL *SendNetMessage_t)(CServerSideClient *, CNetMessage*, NetChannelBufType_t);
-typedef void (FASTCALL *HostStateRequest_t)(int, CHostStateRequest*);
+typedef void (FASTCALL *HostStateRequest_t)(CHostStateMgr*, CHostStateRequest*);
 
 bool FASTCALL Hook_SendNetMessage(CServerSideClient *pClient, CNetMessage *pData, NetChannelBufType_t bufType);
-void FASTCALL Hook_SetPendingHostStateRequest(int, CHostStateRequest*);
+void FASTCALL Hook_SetPendingHostStateRequest(CHostStateMgr*, CHostStateRequest*);
 
 SendNetMessage_t g_pfnSendNetMessage = nullptr;
 HostStateRequest_t g_pfnSetPendingHostStateRequest = nullptr;
@@ -716,7 +716,9 @@ bool FASTCALL Hook_SendNetMessage(CServerSideClient *pClient, CNetMessage *pData
 	return g_pfnSendNetMessage(pClient, pData, bufType);
 }
 
-void FASTCALL Hook_SetPendingHostStateRequest(int numRequest, CHostStateRequest *pRequest)
+// pMgrDoNotUse is named as such because the variable is optimized out in Windows builds and will not be passed to the function.
+// The original Windows function just uses the global singleton instead.
+void FASTCALL Hook_SetPendingHostStateRequest(CHostStateMgr* pMgrDoNotUse, CHostStateRequest *pRequest)
 {
 	// When IVEngineServer::ChangeLevel is called by the plugin or the server code,
 	// (which happens at the end of a map), the server-defined addon does not change.
@@ -735,7 +737,7 @@ void FASTCALL Hook_SetPendingHostStateRequest(int numRequest, CHostStateRequest 
 			g_MultiAddonManager.ClearCurrentWorkshopMap();
 	}
 	if (g_MultiAddonManager.m_ExtraAddons.Count() == 0)
-		return g_pfnSetPendingHostStateRequest(numRequest, pRequest);
+		return g_pfnSetPendingHostStateRequest(pMgrDoNotUse, pRequest);
 
 	// Rebuild the addon list. We always start with the original addon.
 	if (g_MultiAddonManager.GetCurrentWorkshopMap().empty())
@@ -752,7 +754,7 @@ void FASTCALL Hook_SetPendingHostStateRequest(int numRequest, CHostStateRequest 
 		pRequest->m_Addons = VectorToString(newAddons).c_str();
 	}
 
-	g_pfnSetPendingHostStateRequest(numRequest, pRequest);
+	g_pfnSetPendingHostStateRequest(pMgrDoNotUse, pRequest);
 }
 
 bool MultiAddonManager::Hook_ClientConnect( CPlayerSlot slot, const char *pszName, uint64 xuid, const char *pszNetworkID, bool unk1, CBufferString *pRejectReason )
