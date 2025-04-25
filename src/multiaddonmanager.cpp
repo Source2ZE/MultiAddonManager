@@ -882,10 +882,20 @@ bool FASTCALL Hook_SendNetMessage(CServerSideClient *pClient, CNetMessage *pData
 	
 	if (pMsg->signon_state() == SIGNONSTATE_CHANGELEVEL)
 	{
-		// We don't really have to do anything here, the list of addons that the client will need to download can be sent later.
-		// But since the client will download the addon contained inside this messsage, we might as well add it to the list of client's downloaded addons.
-		if (!pMsg->addons().empty() && clientInfo.downloadedAddons.Find(pMsg->addons()) == -1)
+		// When switching to another map, the signon message might contain more than 1 addon.
+		// This puts the client in limbo because client doesn't know how to handle multiple addons at the same time.
+		CUtlVector<std::string> addonsList;
+		StringToVector(pMsg->addons().c_str(), addonsList);
+		if (addonsList.Count() > 1)
 		{
+			// If there's more than one addon, ensure that it takes the first addon (which should be the workshop map or the first custom addon)
+			pMsg->set_addons(addonsList.Head());
+			// Since the client will download the addon contained inside this messsage, we might as well add it to the list of client's downloaded addons.
+			clientInfo.currentPendingAddon = addonsList.Head();
+		}
+		else if (addonsList.Count() == 1)
+		{
+			// Nothing to do here, the rest of the required addons can be sent later.
 			clientInfo.currentPendingAddon = pMsg->addons();
 		}
 		
