@@ -50,8 +50,8 @@ public:
 	virtual bool HasUGCConnection() = 0;
 	
 	// Functions to manage addons to be loaded only by a client. 
-	// Pass an xuid value of 0 to perform the operation on a global list instead, and bRefresh to 'true' to trigger a reconnect if necessary.
-	virtual void AddClientAddon(const char *pszAddon, uint64 xuid = 0, bool bRefresh = false) = 0;
-	virtual void RemoveClientAddon(const char *pszAddon, uint64 xuid = 0) = 0;
-	virtual void ClearClientAddons(uint64 xuid = 0) = 0;
+	// Pass a steamID value of 0 to perform the operation on a global list instead, and bRefresh to 'true' to trigger a reconnect if necessary.
+	virtual void AddClientAddon(const char *pszAddon, uint64 steamID64 = 0, bool bRefresh = false) = 0;
+	virtual void RemoveClientAddon(const char *pszAddon, uint64 steamID64 = 0) = 0;
+	virtual void ClearClientAddons(uint64 steamID64 = 0) = 0;
 };

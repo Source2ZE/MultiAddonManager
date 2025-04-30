@@ -678,9 +678,9 @@ bool MultiAddonManager::HasUGCConnection()
 	return g_SteamAPI.SteamUGC() != nullptr;
 }
 
-void MultiAddonManager::AddClientAddon(const char *pszAddon, uint64 xuid, bool bRefresh)
+void MultiAddonManager::AddClientAddon(const char *pszAddon, uint64 steamID64, bool bRefresh)
 {
-	if (!xuid)
+	if (!steamID64)
 	{
 		if (m_GlobalClientAddons.Find(pszAddon) != -1)
 		{
@@ -693,13 +693,13 @@ void MultiAddonManager::AddClientAddon(const char *pszAddon, uint64 xuid, bool b
 	}
 	else
 	{
-		if (g_ClientAddons[xuid].addonsToLoad.Find(pszAddon) != -1)
+		if (g_ClientAddons[steamID64].addonsToLoad.Find(pszAddon) != -1)
 		{
 			Panic("Addon %s is already in the list!\n", pszAddon);
 			return;
 		}
 
-		ClientAddonInfo_t &clientInfo = g_ClientAddons[xuid];
+		ClientAddonInfo_t &clientInfo = g_ClientAddons[steamID64];
 		clientInfo.addonsToLoad.AddToTail(pszAddon);
 	}
 	
@@ -715,18 +715,18 @@ void MultiAddonManager::AddClientAddon(const char *pszAddon, uint64 xuid, bool b
 		FOR_EACH_VEC(clients, i)
 		{
 			CServerSideClient *pClient = clients[i];
-			if (xuid == 0 || pClient->GetClientSteamID()->ConvertToUint64() == xuid)
+			if (steamID64 == 0 || pClient->GetClientSteamID()->ConvertToUint64() == steamID64)
 			{
 				// Client is already loading, telling them to reload now will actually just disconnect them. ("Received signon %i when at %i\n" in client console)
 				if (pClient->GetSignonState() == SIGNONSTATE_CHANGELEVEL)
 					break;
 				// Client still has addons to load anyway, they don't need to be told to reload
-				if (!g_ClientAddons[xuid].currentPendingAddon.empty())
+				if (!g_ClientAddons[steamID64].currentPendingAddon.empty())
 					break;
-				ClientAddonInfo_t &clientInfo = g_ClientAddons[xuid];
+				ClientAddonInfo_t &clientInfo = g_ClientAddons[steamID64];
 
 				CUtlVector<std::string> addons;
-				g_MultiAddonManager.GetClientAddons(addons, xuid);
+				g_MultiAddonManager.GetClientAddons(addons, steamID64);
 				
 				FOR_EACH_VEC(clientInfo.downloadedAddons, j)
 				{
@@ -741,7 +741,7 @@ void MultiAddonManager::AddClientAddon(const char *pszAddon, uint64 xuid, bool b
 				
 				pClient->GetNetChannel()->SendNetMessage(pMsg, BUF_RELIABLE);
 
-				if (xuid)
+				if (steamID64)
 				{
 					break;
 				}
@@ -751,30 +751,30 @@ void MultiAddonManager::AddClientAddon(const char *pszAddon, uint64 xuid, bool b
 	}
 }
 
-void MultiAddonManager::RemoveClientAddon(const char *pszAddon, uint64 xuid)
+void MultiAddonManager::RemoveClientAddon(const char *pszAddon, uint64 steamID64)
 {
-	if (!xuid)
+	if (!steamID64)
 	{
 		m_GlobalClientAddons.FindAndRemove(pszAddon);
 		mm_client_extra_addons.GetConVarData()->Value(0)->m_StringValue = VectorToString(m_GlobalClientAddons).c_str();	
 	}
 	else
 	{
-		ClientAddonInfo_t &clientInfo = g_ClientAddons[xuid];
+		ClientAddonInfo_t &clientInfo = g_ClientAddons[steamID64];
 		clientInfo.addonsToLoad.FindAndRemove(pszAddon);
 	}
 }
 
-void MultiAddonManager::ClearClientAddons(uint64 xuid)
+void MultiAddonManager::ClearClientAddons(uint64 steamID64)
 {
-	if (!xuid)
+	if (!steamID64)
 	{
 		m_GlobalClientAddons.RemoveAll();
 		mm_client_extra_addons.GetConVarData()->Value(0)->m_StringValue = VectorToString(m_GlobalClientAddons).c_str();	
 	}
 	else
 	{
-		ClientAddonInfo_t &clientInfo = g_ClientAddons[xuid];
+		ClientAddonInfo_t &clientInfo = g_ClientAddons[steamID64];
 		clientInfo.addonsToLoad.RemoveAll();
 	}
 }
@@ -863,8 +863,8 @@ bool FASTCALL Hook_SendNetMessage(CServerSideClient *pClient, CNetMessage *pData
 {
 	NetMessageInfo_t *info = pData->GetNetMessage()->GetNetMessageInfo();
 	
-	uint64 xuid = pClient->GetClientSteamID()->ConvertToUint64();
-	ClientAddonInfo_t &clientInfo = g_ClientAddons[xuid];
+	uint64 steamID64 = pClient->GetClientSteamID()->ConvertToUint64();
+	ClientAddonInfo_t &clientInfo = g_ClientAddons[steamID64];
 	
 	// If we are sending a message to the client, that means the client is still active.
 	clientInfo.lastActiveTime = Plat_FloatTime();
@@ -876,7 +876,7 @@ bool FASTCALL Hook_SendNetMessage(CServerSideClient *pClient, CNetMessage *pData
 	auto pMsg = pData->ToPB<CNETMsg_SignonState>();
 
 	CUtlVector<std::string> addons;
-	g_MultiAddonManager.GetClientAddons(addons, xuid);
+	g_MultiAddonManager.GetClientAddons(addons, steamID64);
 	
 	
 	if (pMsg->signon_state() == SIGNONSTATE_CHANGELEVEL)
@@ -961,45 +961,45 @@ void FASTCALL Hook_SetPendingHostStateRequest(CHostStateMgr* pMgrDoNotUse, CHost
 	g_pfnSetPendingHostStateRequest(pMgrDoNotUse, pRequest);
 }
 
-bool MultiAddonManager::Hook_ClientConnect( CPlayerSlot slot, const char *pszName, uint64 xuid, const char *pszNetworkID, bool unk1, CBufferString *pRejectReason )
+bool MultiAddonManager::Hook_ClientConnect( CPlayerSlot slot, const char *pszName, uint64 steamID64, const char *pszNetworkID, bool unk1, CBufferString *pRejectReason )
 {
 	CUtlVector<std::string> addons;
-	g_MultiAddonManager.GetClientAddons(addons, xuid);
+	g_MultiAddonManager.GetClientAddons(addons, steamID64);
 	// We don't have an extra addon set so do nothing here, also don't do anything if we're a listenserver
 	if (addons.Count() == 0 || !CommandLine()->HasParm("-dedicated"))
 		RETURN_META_VALUE(MRES_IGNORED, true);
-	ClientAddonInfo_t &clientInfo = g_ClientAddons[xuid];
+	ClientAddonInfo_t &clientInfo = g_ClientAddons[steamID64];
 
 	if (!clientInfo.currentPendingAddon.empty())
 	{
 		if (Plat_FloatTime() - clientInfo.lastActiveTime > mm_extra_addons_timeout.Get())
 		{
-			Message("%s: Client %lli has reconnected after the timeout or did not receive the addon message, will not add addon %s to the downloaded list\n", __func__, xuid, clientInfo.currentPendingAddon.c_str());
+			Message("%s: Client %lli has reconnected after the timeout or did not receive the addon message, will not add addon %s to the downloaded list\n", __func__, steamID64, clientInfo.currentPendingAddon.c_str());
 		}
 		else
 		{
-			Message("%s: Client %lli has connected within the interval with the pending addon %s, will send next addon in SendNetMessage hook\n", __func__, xuid, clientInfo.currentPendingAddon.c_str());
+			Message("%s: Client %lli has connected within the interval with the pending addon %s, will send next addon in SendNetMessage hook\n", __func__, steamID64, clientInfo.currentPendingAddon.c_str());
 			clientInfo.downloadedAddons.AddToTail(clientInfo.currentPendingAddon);
 		}
 		// Reset the current pending addon anyway, SendNetMessage tells us which addon to download next.
 		clientInfo.currentPendingAddon.clear();
 	}
-	g_ClientAddons[xuid].lastActiveTime = Plat_FloatTime();
+	g_ClientAddons[steamID64].lastActiveTime = Plat_FloatTime();
 	RETURN_META_VALUE(MRES_IGNORED, true);
 }
 
-void MultiAddonManager::Hook_ClientDisconnect( CPlayerSlot slot, ENetworkDisconnectionReason reason, const char *pszName, uint64 xuid, const char *pszNetworkID )
+void MultiAddonManager::Hook_ClientDisconnect( CPlayerSlot slot, ENetworkDisconnectionReason reason, const char *pszName, uint64 steamID64, const char *pszNetworkID )
 {
 	// Mark the disconnection time for caching purposes.
-	g_ClientAddons[xuid].lastActiveTime = Plat_FloatTime();
+	g_ClientAddons[steamID64].lastActiveTime = Plat_FloatTime();
 }
 
-void MultiAddonManager::Hook_ClientActive(CPlayerSlot slot, bool bLoadGame, const char * pszName, uint64 xuid)
+void MultiAddonManager::Hook_ClientActive(CPlayerSlot slot, bool bLoadGame, const char * pszName, uint64 steamID64)
 {
 	// When the client reaches this stage, they should already have all the necessary addons downloaded, so we can safely remove the downloaded addons list here.
 	if (!mm_cache_clients_with_addons.Get())
 	{
-		g_ClientAddons[xuid].downloadedAddons.RemoveAll();
+		g_ClientAddons[steamID64].downloadedAddons.RemoveAll();
 	}
 }
 
@@ -1050,12 +1050,12 @@ int MultiAddonManager::Hook_LoadEventsFromFile(const char *filename, bool bSearc
 
 void FASTCALL Hook_ReplyConnection(INetworkGameServer *server, CServerSideClient *client)
 {
-	uint64 xuid = client->GetClientSteamID()->ConvertToUint64();
+	uint64 steamID64 = client->GetClientSteamID()->ConvertToUint64();
 	// Clear cache if necessary.
-	ClientAddonInfo_t &clientInfo = g_ClientAddons[xuid];
+	ClientAddonInfo_t &clientInfo = g_ClientAddons[steamID64];
 	if (mm_cache_clients_with_addons.Get() && mm_cache_clients_duration.Get() != 0 && Plat_FloatTime() - clientInfo.lastActiveTime > mm_cache_clients_duration.Get())
 	{
-		Message("%s: Client %lli has not connected for a while, clearing the cache\n", __func__, xuid);
+		Message("%s: Client %lli has not connected for a while, clearing the cache\n", __func__, steamID64);
 		clientInfo.currentPendingAddon.clear();
 		clientInfo.downloadedAddons.RemoveAll();
 	}
@@ -1067,7 +1067,7 @@ void FASTCALL Hook_ReplyConnection(INetworkGameServer *server, CServerSideClient
 
 	// Figure out which addons the client should be loading.
 	CUtlVector<std::string> clientAddons;
-	g_MultiAddonManager.GetClientAddons(clientAddons, xuid);
+	g_MultiAddonManager.GetClientAddons(clientAddons, steamID64);
 	if (clientAddons.Count() == 0)
 	{
 		// No addons to send. This means the list of original addons is empty as well.
@@ -1077,12 +1077,12 @@ void FASTCALL Hook_ReplyConnection(INetworkGameServer *server, CServerSideClient
 	}
 
 	// Handle the first addon here. The rest should be handled in the SendNetMessage hook.
-	if (g_ClientAddons[xuid].downloadedAddons.Find(clientAddons[0]) == -1)
-		g_ClientAddons[xuid].currentPendingAddon = clientAddons[0];
+	if (g_ClientAddons[steamID64].downloadedAddons.Find(clientAddons[0]) == -1)
+		g_ClientAddons[steamID64].currentPendingAddon = clientAddons[0];
 	
 	*addons = VectorToString(clientAddons).c_str();
 
-	Message("%s: Sending addons %s to xuid %lli\n", __func__, addons->Get(), xuid);
+	Message("%s: Sending addons %s to steamID64 %lli\n", __func__, addons->Get(), steamID64);
 	g_pfnReplyConnection(server, client);
 
 	*addons = originalAddons;
@@ -1108,7 +1108,7 @@ const char *MultiAddonManager::GetLogTag()
 	return "MultiAddonManager";
 }
 
-void MultiAddonManager::GetClientAddons(CUtlVector<std::string> &addons, uint64 xuid)
+void MultiAddonManager::GetClientAddons(CUtlVector<std::string> &addons, uint64 steamID64)
 {
 	addons.RemoveAll();
 	
@@ -1122,13 +1122,13 @@ void MultiAddonManager::GetClientAddons(CUtlVector<std::string> &addons, uint64 
 		if (addons.Find(m_GlobalClientAddons[i].c_str()) == -1)
 			addons.AddToTail(m_GlobalClientAddons[i].c_str());
 	}
-	// If we specify a client xuid, check for the addons exclusive to this client as well.
-	if (xuid)
+	// If we specify a client steamID64, check for the addons exclusive to this client as well.
+	if (steamID64)
 	{
-		FOR_EACH_VEC(g_ClientAddons[xuid].addonsToLoad, i)
+		FOR_EACH_VEC(g_ClientAddons[steamID64].addonsToLoad, i)
 		{
-			if (addons.Find(g_ClientAddons[xuid].addonsToLoad[i].c_str()) == -1)
-				addons.AddToTail(g_ClientAddons[xuid].addonsToLoad[i].c_str());
+			if (addons.Find(g_ClientAddons[steamID64].addonsToLoad[i].c_str()) == -1)
+				addons.AddToTail(g_ClientAddons[steamID64].addonsToLoad[i].c_str());
 		}
 	}
 }
