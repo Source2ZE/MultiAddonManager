@@ -69,7 +69,7 @@ public: //hooks
 	void SetCurrentWorkshopMap(const char *pszWorkshopID) { m_sCurrentWorkshopMap = pszWorkshopID; }
 	void ClearCurrentWorkshopMap() { m_sCurrentWorkshopMap.clear(); }
 
-	bool HasGCConnection();
+	bool HasUGCConnection();
 	void AddClientAddon(const char *pszAddon, uint64 xuid = 0, bool bRefresh = false);
 	void RemoveClientAddon(const char *pszAddon, uint64 xuid = 0);
 	void ClearClientAddons(uint64 xuid = 0);

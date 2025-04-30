@@ -45,7 +45,6 @@ CConVar<bool> mm_cache_clients_with_addons("mm_cache_clients_with_addons", FCVAR
 CConVar<float> mm_cache_clients_duration("mm_cache_clients_duration", FCVAR_NONE, "How long to cache clients' downloaded addons list in seconds, pass 0 for forever.", 0.0f);
 CConVar<float> mm_extra_addons_timeout("mm_extra_addons_timeout", FCVAR_NONE, "How long until clients are timed out in between connects for extra addons in seconds, requires mm_extra_addons to be used", 10.f);
 
-#define FCVAR_FLAGS_TO_REMOVE (FCVAR_HIDDEN | FCVAR_DEVELOPMENTONLY | FCVAR_DEFENSIVE)
 void Message(const char *msg, ...)
 {
 	va_list args;
@@ -674,7 +673,7 @@ CNetMessagePB<CNETMsg_SignonState> *GetAddonSignonStateMessage(const char *pszAd
 	return pMsg;
 }
 
-bool MultiAddonManager::HasGCConnection()
+bool MultiAddonManager::HasUGCConnection()
 {
 	return g_SteamAPI.SteamUGC() != nullptr;
 }
