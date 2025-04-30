@@ -46,9 +46,9 @@ public:
 public: //hooks
 	void Hook_GameServerSteamAPIActivated();
 	void Hook_StartupServer(const GameSessionConfiguration_t &config, ISource2WorldSession *, const char *);
-	bool Hook_ClientConnect(CPlayerSlot slot, const char *pszName, uint64 xuid, const char *pszNetworkID, bool unk1, CBufferString *pRejectReason);
-	void Hook_ClientDisconnect(CPlayerSlot slot, ENetworkDisconnectionReason reason, const char *pszName, uint64 xuid, const char *pszNetworkID);
-	void Hook_ClientActive(CPlayerSlot slot, bool bLoadGame, const char *pszName, uint64 xuid);
+	bool Hook_ClientConnect(CPlayerSlot slot, const char *pszName, uint64 steamID64, const char *pszNetworkID, bool unk1, CBufferString *pRejectReason);
+	void Hook_ClientDisconnect(CPlayerSlot slot, ENetworkDisconnectionReason reason, const char *pszName, uint64 steamID64, const char *pszNetworkID);
+	void Hook_ClientActive(CPlayerSlot slot, bool bLoadGame, const char *pszName, uint64 steamID64);
 	void Hook_GameFrame(bool simulating, bool bFirstTick, bool bLastTick);
 	void Hook_PostEvent(CSplitScreenSlot nSlot, bool bLocalOnly, int nClientCount, const uint64 *clients,
 		INetworkMessageInternal *pEvent, const CNetMessage *pData, unsigned long nSize, NetChannelBufType_t bufType);
@@ -70,10 +70,10 @@ public: //hooks
 	void ClearCurrentWorkshopMap() { m_sCurrentWorkshopMap.clear(); }
 
 	bool HasUGCConnection();
-	void AddClientAddon(const char *pszAddon, uint64 xuid = 0, bool bRefresh = false);
-	void RemoveClientAddon(const char *pszAddon, uint64 xuid = 0);
-	void ClearClientAddons(uint64 xuid = 0);
-	void GetClientAddons(CUtlVector<std::string> &addons, uint64 xuid = 0);
+	void AddClientAddon(const char *pszAddon, uint64 steamID64 = 0, bool bRefresh = false);
+	void RemoveClientAddon(const char *pszAddon, uint64 steamID64 = 0);
+	void ClearClientAddons(uint64 steamID64 = 0);
+	void GetClientAddons(CUtlVector<std::string> &addons, uint64 steamID64 = 0);
 
 public:
 	const char *GetAuthor();
