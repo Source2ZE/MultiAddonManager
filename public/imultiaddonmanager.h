@@ -47,7 +47,7 @@ public:
 	
 	// Check whether the server is connected to the game coordinator, and therefore is capable of downloading addons.
 	// Should be called before calling DownloadAddon.
-	virtual bool HasGCConnection() = 0;
+	virtual bool HasUGCConnection() = 0;
 	
 	// Functions to manage addons to be loaded only by a client. 
 	// Pass an xuid value of 0 to perform the operation on a global list instead, and bRefresh to 'true' to trigger a reconnect if necessary.
