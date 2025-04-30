@@ -779,6 +779,31 @@ void MultiAddonManager::ClearClientAddons(uint64 steamID64)
 	}
 }
 
+void MultiAddonManager::GetClientAddons(CUtlVector<std::string> &addons, uint64 steamID64)
+{
+	addons.RemoveAll();
+	
+	if (!GetCurrentWorkshopMap().empty())
+		addons.AddToTail(GetCurrentWorkshopMap().c_str());
+	// The list of mounted addons should never contain the workshop map.
+	addons.AddVectorToTail(m_MountedAddons);
+	// Also make sure we don't have duplicates.
+	FOR_EACH_VEC(m_GlobalClientAddons, i)
+	{
+		if (addons.Find(m_GlobalClientAddons[i].c_str()) == -1)
+			addons.AddToTail(m_GlobalClientAddons[i].c_str());
+	}
+	// If we specify a client steamID64, check for the addons exclusive to this client as well.
+	if (steamID64)
+	{
+		FOR_EACH_VEC(g_ClientAddons[steamID64].addonsToLoad, i)
+		{
+			if (addons.Find(g_ClientAddons[steamID64].addonsToLoad[i].c_str()) == -1)
+				addons.AddToTail(g_ClientAddons[steamID64].addonsToLoad[i].c_str());
+		}
+	}
+}
+
 CON_COMMAND_F(mm_add_client_addon, "Add a workshop ID to the global client-only addon list", FCVAR_LINKED_CONCOMMAND | FCVAR_SPONLY)
 {
 	if (args.ArgC() < 2)
@@ -912,7 +937,7 @@ bool FASTCALL Hook_SendNetMessage(CServerSideClient *pClient, CNetMessage *pData
 	}
 
 	// Otherwise, send the next addon to the client.
-	Message("%s: Number of addons remaining to download: %d\n", __func__, addons.Count());
+	Message("%s: Number of addons remaining to download for %lli: %d\n", __func__, steamID64, addons.Count());
 	clientInfo.currentPendingAddon = addons.Head();
 	pMsg->set_addons(addons.Head().c_str());
 	pMsg->set_signon_state(SIGNONSTATE_CHANGELEVEL);
@@ -964,7 +989,7 @@ void FASTCALL Hook_SetPendingHostStateRequest(CHostStateMgr* pMgrDoNotUse, CHost
 bool MultiAddonManager::Hook_ClientConnect( CPlayerSlot slot, const char *pszName, uint64 steamID64, const char *pszNetworkID, bool unk1, CBufferString *pRejectReason )
 {
 	CUtlVector<std::string> addons;
-	g_MultiAddonManager.GetClientAddons(addons, steamID64);
+	GetClientAddons(addons, steamID64);
 	// We don't have an extra addon set so do nothing here, also don't do anything if we're a listenserver
 	if (addons.Count() == 0 || !CommandLine()->HasParm("-dedicated"))
 		RETURN_META_VALUE(MRES_IGNORED, true);
@@ -1106,31 +1131,6 @@ const char *MultiAddonManager::GetDate()
 const char *MultiAddonManager::GetLogTag()
 {
 	return "MultiAddonManager";
-}
-
-void MultiAddonManager::GetClientAddons(CUtlVector<std::string> &addons, uint64 steamID64)
-{
-	addons.RemoveAll();
-	
-	if (!g_MultiAddonManager.GetCurrentWorkshopMap().empty())
-		addons.AddToTail(g_MultiAddonManager.GetCurrentWorkshopMap().c_str());
-	// The list of mounted addons should never contain the workshop map.
-	addons.AddVectorToTail(m_MountedAddons);
-	// Also make sure we don't have duplicates.
-	FOR_EACH_VEC(m_GlobalClientAddons, i)
-	{
-		if (addons.Find(m_GlobalClientAddons[i].c_str()) == -1)
-			addons.AddToTail(m_GlobalClientAddons[i].c_str());
-	}
-	// If we specify a client steamID64, check for the addons exclusive to this client as well.
-	if (steamID64)
-	{
-		FOR_EACH_VEC(g_ClientAddons[steamID64].addonsToLoad, i)
-		{
-			if (addons.Find(g_ClientAddons[steamID64].addonsToLoad[i].c_str()) == -1)
-				addons.AddToTail(g_ClientAddons[steamID64].addonsToLoad[i].c_str());
-		}
-	}
 }
 
 const char *MultiAddonManager::GetAuthor()
