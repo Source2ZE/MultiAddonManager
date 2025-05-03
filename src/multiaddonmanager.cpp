@@ -118,6 +118,8 @@ funchook_t *g_pSendNetMessageHook = nullptr;
 funchook_t *g_pSetPendingHostStateRequest = nullptr;
 funchook_t *g_pReplyConnectionHook = nullptr;
 
+int g_iLoadEventsFromFileHookId = -1;
+
 class GameSessionConfiguration_t { };
 
 SH_DECL_HOOK0_void(IServerGameDLL, GameServerSteamAPIActivated, SH_NOATTRIB, 0);
@@ -130,15 +132,29 @@ SH_DECL_HOOK8_void(IGameEventSystem, PostEventAbstract, SH_NOATTRIB, 0, CSplitSc
 	INetworkMessageInternal *, const CNetMessage *, unsigned long, NetChannelBufType_t);
 SH_DECL_HOOK2(IGameEventManager2, LoadEventsFromFile, SH_NOATTRIB, 0, int, const char *, bool);
 
+// Signatures
+
+// "Discarding pending request '%s, %u'\n"
+// "Sending S2C_CONNECTION to %s [addons:'%s']\n"
 #ifdef PLATFORM_WINDOWS
-constexpr int g_iSendNetMessageOffset = 15;
-constexpr int g_iClientOffset = 624;
+constexpr const byte g_HostStateRequest_Sig[] = "\x48\x89\x74\x24\x2A\x57\x48\x83\xEC\x2A\x33\xF6\x48\x8B\xFA\x48\x39\x35";
+constexpr const byte g_ReplyConnection_Sig[] = "\x48\x8B\xC4\x55\x41\x54\x41\x55\x41\x57";
 #else
-constexpr int g_iSendNetMessageOffset = 16;
-constexpr int g_iClientOffset = 640;
+constexpr const byte g_HostStateRequest_Sig[] = "\x55\x48\x89\xE5\x41\x56\x41\x55\x41\x54\x49\x89\xF4\x53\x48\x83\x7F";
+constexpr const byte g_ReplyConnection_Sig[] = "\x55\xB9\x00\x01\x00\x00";
 #endif
 
-int g_iLoadEventsFromFileId = -1;
+
+// Offsets
+constexpr int g_iServerAddonsOffset = 328;
+
+#ifdef PLATFORM_WINDOWS
+constexpr int g_iSendNetMessageOffset = 15;
+constexpr int g_iClientListOffset = 624;
+#else
+constexpr int g_iSendNetMessageOffset = 16;
+constexpr int g_iClientListOffset = 640;
+#endif
 
 /* 
 The general workflow is defined as follows:
@@ -169,10 +185,9 @@ struct ClientAddonInfo_t
 CUtlVector<CServerSideClient *> *GetClientList()
 {
 	if (!g_pNetworkServerService)
-	{
 		return nullptr;
-	}
-	return (CUtlVector<CServerSideClient *> *)((char *)g_pNetworkServerService->GetIGameServer() + g_iClientOffset);
+
+	return (CUtlVector<CServerSideClient *> *)((char *)g_pNetworkServerService->GetIGameServer() + g_iClientListOffset);
 }
 std::unordered_map<uint64, ClientAddonInfo_t> g_ClientAddons; 
 
@@ -218,19 +233,9 @@ bool MultiAddonManager::Load(PluginId id, ISmmAPI *ismm, char *error, size_t max
 	CModule engineModule(ROOTBIN, "engine2");
 	CModule serverModule(GAMEBIN, "server");
 
-	// "Discarding pending request '%s, %u'\n"
-	// "Sending S2C_CONNECTION to %s [addons:'%s']\n"
-#ifdef PLATFORM_WINDOWS
-	const byte HostStateRequest_Sig[] = "\x48\x89\x74\x24\x2A\x57\x48\x83\xEC\x2A\x33\xF6\x48\x8B\xFA\x48\x39\x35";
-	const byte ReplyConnection_Sig[] = "\x48\x8B\xC4\x55\x41\x54\x41\x55\x41\x57";
-#else
-	const byte HostStateRequest_Sig[] = "\x55\x48\x89\xE5\x41\x56\x41\x55\x41\x54\x49\x89\xF4\x53\x48\x83\x7F";
-	const byte ReplyConnection_Sig[] = "\x55\xB9\x00\x01\x00\x00";
-#endif
-
 	int sig_error;
 
-	g_pfnSetPendingHostStateRequest = (HostStateRequest_t)engineModule.FindSignature(HostStateRequest_Sig, sizeof(HostStateRequest_Sig) - 1, sig_error);
+	g_pfnSetPendingHostStateRequest = (HostStateRequest_t)engineModule.FindSignature(g_HostStateRequest_Sig, sizeof(g_HostStateRequest_Sig) - 1, sig_error);
 
 	if (!g_pfnSetPendingHostStateRequest)
 	{
@@ -255,7 +260,7 @@ bool MultiAddonManager::Load(PluginId id, ISmmAPI *ismm, char *error, size_t max
 	funchook_prepare(g_pSendNetMessageHook, (void**)&g_pfnSendNetMessage, (void*)Hook_SendNetMessage);
 	funchook_install(g_pSendNetMessageHook, 0);
 
-	g_pfnReplyConnection = (ReplyConnection_t)engineModule.FindSignature(ReplyConnection_Sig, sizeof(ReplyConnection_Sig) - 1, sig_error);
+	g_pfnReplyConnection = (ReplyConnection_t)engineModule.FindSignature(g_ReplyConnection_Sig, sizeof(g_ReplyConnection_Sig) - 1, sig_error);
 
 	if (!g_pfnReplyConnection)
 	{
@@ -285,7 +290,7 @@ bool MultiAddonManager::Load(PluginId id, ISmmAPI *ismm, char *error, size_t max
 	if (!pCGameEventManagerVTable)
 		return false;
 
-	g_iLoadEventsFromFileId = SH_ADD_DVPHOOK(IGameEventManager2, LoadEventsFromFile, pCGameEventManagerVTable, SH_MEMBER(this, &MultiAddonManager::Hook_LoadEventsFromFile), false);
+	g_iLoadEventsFromFileHookId = SH_ADD_DVPHOOK(IGameEventManager2, LoadEventsFromFile, pCGameEventManagerVTable, SH_MEMBER(this, &MultiAddonManager::Hook_LoadEventsFromFile), false);
 
 	if (late)
 	{
@@ -318,7 +323,7 @@ bool MultiAddonManager::Unload(char *error, size_t maxlen)
 	SH_REMOVE_HOOK(IServerGameClients, ClientActive, g_pSource2GameClients, SH_MEMBER(this, &MultiAddonManager::Hook_ClientActive), true);
 	SH_REMOVE_HOOK(IServerGameDLL, GameFrame, g_pSource2Server, SH_MEMBER(this, &MultiAddonManager::Hook_GameFrame), true);
 	SH_REMOVE_HOOK(IGameEventSystem, PostEventAbstract, g_pGameEventSystem, SH_MEMBER(this, &MultiAddonManager::Hook_PostEvent), false);
-	SH_REMOVE_HOOK_ID(g_iLoadEventsFromFileId);
+	SH_REMOVE_HOOK_ID(g_iLoadEventsFromFileHookId);
 
 	if (g_pSetPendingHostStateRequest)
 	{
@@ -1087,7 +1092,7 @@ void FASTCALL Hook_ReplyConnection(INetworkGameServer *server, CServerSideClient
 	clientInfo.lastActiveTime = Plat_FloatTime();
 
 	// Server copies the CUtlString from CNetworkGameServer to this client.
-	CUtlString *addons = (CUtlString *)((uintptr_t)server + 328);
+	CUtlString *addons = (CUtlString *)((uintptr_t)server + g_iServerAddonsOffset);
 	CUtlString originalAddons = *addons;
 
 	// Figure out which addons the client should be loading.
