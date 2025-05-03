@@ -303,7 +303,7 @@ bool MultiAddonManager::Load(PluginId id, ISmmAPI *ismm, char *error, size_t max
 		}
 	}
 
-	ConVar_Register(FCVAR_LINKED_CONCOMMAND);
+	META_CONVAR_REGISTER(FCVAR_RELEASE);
 
 	g_pEngineServer->ServerCommand("exec multiaddonmanager/multiaddonmanager");
 
@@ -809,7 +809,7 @@ void MultiAddonManager::GetClientAddons(CUtlVector<std::string> &addons, uint64 
 	}
 }
 
-CON_COMMAND_F(mm_add_client_addon, "Add a workshop ID to the global client-only addon list", FCVAR_LINKED_CONCOMMAND | FCVAR_SPONLY)
+CON_COMMAND_F(mm_add_client_addon, "Add a workshop ID to the global client-only addon list", FCVAR_SPONLY)
 {
 	if (args.ArgC() < 2)
 	{
@@ -819,7 +819,7 @@ CON_COMMAND_F(mm_add_client_addon, "Add a workshop ID to the global client-only 
 	g_MultiAddonManager.AddClientAddon(args[1]);
 }
 
-CON_COMMAND_F(mm_remove_client_addon, "Remove a workshop ID from the global client-only addon list", FCVAR_LINKED_CONCOMMAND | FCVAR_SPONLY)
+CON_COMMAND_F(mm_remove_client_addon, "Remove a workshop ID from the global client-only addon list", FCVAR_SPONLY)
 {
 	if (args.ArgC() < 2)
 	{
@@ -829,7 +829,7 @@ CON_COMMAND_F(mm_remove_client_addon, "Remove a workshop ID from the global clie
 	g_MultiAddonManager.RemoveClientAddon(args[1]);
 }
 
-CON_COMMAND_F(mm_add_addon, "Add a workshop ID to the extra addon list", FCVAR_LINKED_CONCOMMAND | FCVAR_SPONLY)
+CON_COMMAND_F(mm_add_addon, "Add a workshop ID to the extra addon list", FCVAR_SPONLY)
 {
 	if (args.ArgC() < 2)
 	{
@@ -840,7 +840,7 @@ CON_COMMAND_F(mm_add_addon, "Add a workshop ID to the extra addon list", FCVAR_L
 	g_MultiAddonManager.AddAddon(args[1]);
 }
 
-CON_COMMAND_F(mm_remove_addon, "Remove a workshop ID from the extra addon list", FCVAR_LINKED_CONCOMMAND | FCVAR_SPONLY)
+CON_COMMAND_F(mm_remove_addon, "Remove a workshop ID from the extra addon list", FCVAR_SPONLY)
 {
 	if (args.ArgC() < 2)
 	{
@@ -851,7 +851,7 @@ CON_COMMAND_F(mm_remove_addon, "Remove a workshop ID from the extra addon list",
 	g_MultiAddonManager.RemoveAddon(args[1]);
 }
 
-CON_COMMAND_F(mm_download_addon, "Download an addon manually", FCVAR_GAMEDLL | FCVAR_RELEASE | FCVAR_SPONLY)
+CON_COMMAND_F(mm_download_addon, "Download an addon manually", FCVAR_SPONLY)
 {
 	if (args.ArgC() != 2)
 	{
@@ -862,7 +862,7 @@ CON_COMMAND_F(mm_download_addon, "Download an addon manually", FCVAR_GAMEDLL | F
 	g_MultiAddonManager.DownloadAddon(args[1], false, true);
 }
 
-CON_COMMAND_F(mm_print_searchpaths, "Print search paths", FCVAR_GAMEDLL | FCVAR_RELEASE | FCVAR_SPONLY)
+CON_COMMAND_F(mm_print_searchpaths, "Print search paths", FCVAR_SPONLY)
 {
 	g_pFullFileSystem->PrintSearchPaths();
 }
@@ -899,7 +899,6 @@ bool FASTCALL Hook_SendNetMessage(CServerSideClient *pClient, CNetMessage *pData
 	// If we are sending a message to the client, that means the client is still active.
 	clientInfo.lastActiveTime = Plat_FloatTime();
 
-	// 7 for signon messages
 	if (info->m_MessageId != net_SignonState || !CommandLine()->HasParm("-dedicated"))
 		return g_pfnSendNetMessage(pClient, pData, bufType);
 
@@ -970,6 +969,7 @@ void FASTCALL Hook_SetPendingHostStateRequest(CHostStateMgr* pMgrDoNotUse, CHost
 		else
 			g_MultiAddonManager.ClearCurrentWorkshopMap();
 	}
+
 	if (g_MultiAddonManager.m_ExtraAddons.Count() == 0)
 		return g_pfnSetPendingHostStateRequest(pMgrDoNotUse, pRequest);
 
