@@ -960,7 +960,11 @@ void FASTCALL Hook_SetPendingHostStateRequest(CHostStateMgr* pMgrDoNotUse, CHost
 	
 	if (!pRequest->m_pKV)
 	{
-		g_MultiAddonManager.ClearCurrentWorkshopMap();
+		// When loading an official community map, the KV is empty, but the addon is set regardless.
+		if (pRequest->m_LoopModeType == "levelload" && !pRequest->m_Addons.IsEmpty())
+			g_MultiAddonManager.SetCurrentWorkshopMap(pRequest->m_Addons.Get());
+		else
+			g_MultiAddonManager.ClearCurrentWorkshopMap();
 	}
 	else if (V_stricmp(pRequest->m_pKV->GetName(), "ChangeLevel"))
 	{
