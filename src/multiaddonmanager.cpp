@@ -970,6 +970,13 @@ void FASTCALL Hook_SetPendingHostStateRequest(CHostStateMgr* pMgrDoNotUse, CHost
 			g_MultiAddonManager.ClearCurrentWorkshopMap();
 	}
 
+	// Valve changed the way community maps (like de_dogtown) are loaded
+	// Now their content lives in addons and they're mounted internally somehow (m_Addons is already set to it by this point)
+	// So check if the addon is indeed one of the community maps and keep it, otherwise clients would error out due to missing assets
+	// Each map has its own folder under game/csgo_community_addons which is mounted as "OFFICIAL_ADDONS"
+	if (!pRequest->m_Addons.IsEmpty() && g_pFullFileSystem->IsDirectory(pRequest->m_Addons.String(), "OFFICIAL_ADDONS"))
+		g_MultiAddonManager.SetCurrentWorkshopMap(pRequest->m_Addons);
+
 	if (g_MultiAddonManager.m_ExtraAddons.Count() == 0)
 		return g_pfnSetPendingHostStateRequest(pMgrDoNotUse, pRequest);
 
