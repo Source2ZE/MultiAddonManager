@@ -578,7 +578,8 @@ void MultiAddonManager::ReloadMap()
 
 	// Using the concommand here as g_pEngineServer->ChangeLevel doesn't unmount workshop maps and we wanna be clean.
 	// See Hook_SetPendingHostStateRequest's comment for more details.
-	if (m_sCurrentWorkshopMap.empty())
+	// Community maps are treated like workshop maps but they should still be loaded using changelevel
+	if (m_sCurrentWorkshopMap.empty() || g_pFullFileSystem->IsDirectory(m_sCurrentWorkshopMap.c_str(), "OFFICIAL_ADDONS"))
 		V_snprintf(cmd, sizeof(cmd), "changelevel %s", gpGlobals->mapname.ToCStr());
 	else
 		V_snprintf(cmd, sizeof(cmd), "host_workshop_map %s", m_sCurrentWorkshopMap.c_str());
