@@ -591,7 +591,7 @@ void MultiAddonManager::OnAddonDownloaded(DownloadItemResult_t *pResult)
 	if (pResult->m_eResult == k_EResultOK)
 		Message("Addon %lli downloaded successfully\n", pResult->m_nPublishedFileId);
 	else
-		Panic("Addon %lli download failed with status %i\n", pResult->m_nPublishedFileId, pResult->m_eResult);
+		Panic("Addon %lli download failed with reason \"%s\" (%i)\n", pResult->m_nPublishedFileId, g_SteamErrorMessages[pResult->m_eResult], pResult->m_eResult);
 
 	// This download isn't triggered by us, don't do anything
 	if (!m_DownloadQueue.Check(pResult->m_nPublishedFileId))
