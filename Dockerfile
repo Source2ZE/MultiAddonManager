@@ -2,12 +2,8 @@ FROM registry.gitlab.steamos.cloud/steamrt/sniper/sdk
 
 WORKDIR /app
 
-RUN apt update && apt install -y wget gnupg lsb-release curl
-RUN curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key | apt-key add -
-RUN echo "deb http://apt.llvm.org/bullseye/ llvm-toolchain-bullseye-14 main" > /etc/apt/sources.list.d/llvm.list
-RUN apt update && apt install -y clang-14
-RUN ln -sf /usr/bin/clang-14 /usr/bin/clang && ln -sf /usr/bin/clang-14 /usr/bin/clang++
-
+RUN apt update && apt install -y gcc-10 g++-10
+RUN ln -sf /usr/bin/gcc-10 /usr/bin/cc && ln -sf /usr/bin/g++-10 /usr/bin/c++
 RUN git clone https://github.com/alliedmodders/ambuild
 RUN cd ambuild && python setup.py install && cd ..
 RUN git clone https://github.com/alliedmodders/metamod-source
