@@ -1,3 +1,10 @@
 [submodule "hl2sdk-manifests"]
 	path = hl2sdk-manifests
 	url = https://github.com/alliedmodders/hl2sdk-manifests
+[submodule "vendor/hl2sdk-cs2"]
+	path = vendor/hl2sdk-cs2
+	url = https://github.com/alliedmodders/hl2sdk
+	branch = cs2
+[submodule "vendor/metamod-source"]
+	path = vendor/metamod-source
+	url = https://github.com/alliedmodders/metamod-source
