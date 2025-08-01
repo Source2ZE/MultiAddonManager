@@ -14,11 +14,6 @@ on:
       - LICENSE
       - README.md
   workflow_dispatch:
-  push:
-    tags:
-      - '*'
-    branches:
-      - main
 
 jobs:
   build:
