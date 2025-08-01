@@ -2,8 +2,8 @@ FROM registry.gitlab.steamos.cloud/steamrt/sniper/sdk
 
 WORKDIR /app
 
-RUN apt update && apt install -y gcc-10 g++-10
-RUN ln -sf /usr/bin/gcc-10 /usr/bin/cc && ln -sf /usr/bin/g++-10 /usr/bin/c++
+RUN apt update && apt install -y clang-16
+RUN ln -sf /usr/bin/clang-16 /usr/bin/clang && ln -sf /usr/bin/clang++-16 /usr/bin/clang++
 RUN git clone https://github.com/alliedmodders/ambuild
 RUN cd ambuild && python setup.py install && cd ..
 RUN git clone https://github.com/alliedmodders/metamod-source
