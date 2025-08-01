@@ -140,19 +140,19 @@ SH_DECL_HOOK2(IGameEventManager2, LoadEventsFromFile, SH_NOATTRIB, 0, int, const
 constexpr const byte g_HostStateRequest_Sig[] = "\x48\x89\x74\x24\x2A\x57\x48\x83\xEC\x2A\x33\xF6\x48\x8B\xFA\x48\x39\x35";
 constexpr const byte g_ReplyConnection_Sig[] = "\x48\x8B\xC4\x55\x41\x54\x41\x55\x41\x57";
 #else
-constexpr const byte g_HostStateRequest_Sig[] = "\x55\x48\x89\xE5\x41\x56\x41\x55\x41\x54\x49\x89\xF4\x53\x48\x83\x7F";
-constexpr const byte g_ReplyConnection_Sig[] = "\x55\xB9\x00\x01\x00\x00";
+constexpr const byte g_HostStateRequest_Sig[] = "\x55\x48\x89\xE5\x41\x57\x41\x56\x41\x55\x41\x54\x49\x89\xFC\x53\x48\x89\xF3\x48\x83\xEC\x18\x48\x83\x7F\x30\x00\x74\x70";
+constexpr const byte g_ReplyConnection_Sig[] = "\x55\x48\x8D\x05\xE8\xC2\xC1\xFF\x66\x0F\xEF\xC0\x48\x89\xE5\x41\x57\x41\x56\x41\x55\x41\x54\x49\x89\xFC\x53\x48\x89\xF3\x48\x81\xEC\xB8\x01\x00\x00";
 #endif
 
 
 // Offsets
-constexpr int g_iServerAddonsOffset = 328;
+constexpr int g_iServerAddonsOffset = 336;
 
 #ifdef PLATFORM_WINDOWS
 constexpr int g_iSendNetMessageOffset = 15;
 constexpr int g_iClientListOffset = 624;
 #else
-constexpr int g_iSendNetMessageOffset = 16;
+constexpr int g_iSendNetMessageOffset = 13;
 constexpr int g_iClientListOffset = 640;
 #endif
 
