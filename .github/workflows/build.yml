@@ -1,4 +1,4 @@
-name: CI
+name: Continuous Integration
 
 on:
   push:
@@ -7,72 +7,35 @@ on:
     branches:
       - main
     paths-ignore:
-    - LICENSE
-    - README.md
+      - LICENSE
+      - README.md
   pull_request:
     paths-ignore:
-    - LICENSE
-    - README.md
+      - LICENSE
+      - README.md
 
 jobs:
   build:
-    name: Build
-    runs-on: ${{ matrix.os }}
-    container: ${{ matrix.container }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-        include:
-          - os: windows-latest
-          - os: ubuntu-latest
-            container: registry.gitlab.steamos.cloud/steamrt/sniper/sdk
+    name: Build via Docker Compose
+    runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          path: MultiAddonManager
-          submodules: recursive
-          fetch-depth: 0
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
 
-      - name: Checkout Metamod
-        uses: actions/checkout@v4
-        with:
-          repository: alliedmodders/metamod-source
-          ref: master
-          path: mmsource-2.0
-          submodules: recursive
-          
-      - name: Checkout HL2SDK
-        uses: actions/checkout@v4
-        with:
-          repository: alliedmodders/hl2sdk
-          ref: cs2
-          path: hl2sdk-cs2
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
 
-      - name: Checkout AMBuild
-        uses: actions/checkout@v4
-        with:
-          repository: alliedmodders/ambuild
-          path: ambuild
+    - name: Build plugin inside container
+      run: docker compose up --build --abort-on-container-exit
 
-      - name: Install AMBuild
-        run: |
-          cd ambuild && python setup.py install && cd ..
-
-      - name: Build
-        working-directory: MultiAddonManager
-        shell: bash
-        run: |
-          mkdir build && cd build
-          python ../configure.py --enable-optimize --symbol-files --sdks cs2
-          ambuild
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ runner.os }}
-          path: MultiAddonManager/build/package
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: linux-package
+        path: dockerbuild/package
 
   release:
     name: Release
@@ -81,28 +44,21 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
+    - name: Download artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: linux-package
+        path: ./Linux
 
-      - name: Package
-        run: |
-          version=`echo $GITHUB_REF | sed "s/refs\/tags\///"`
-          ls -Rall
-          if [ -d "./Linux/" ]; then
-            cd ./Linux/
-            tar -czf ../${{ github.event.repository.name }}-${version}-linux.tar.gz *
-            cd -
-          fi
-          if [ -d "./Windows/" ]; then
-            cd ./Windows/
-            zip -r ../${{ github.event.repository.name }}-${version}-windows.zip *
-            cd -
-          fi
+    - name: Package Linux .so
+      run: |
+        version="${GITHUB_REF#refs/tags/}"
+        tar -czf MultiAddonManager-${version}-linux.tar.gz -C Linux .
 
-      - name: Release
-        uses: svenstaro/upload-release-action@v2
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: ${{ github.event.repository.name }}-*
-          tag: ${{ github.ref }}
-          file_glob: true
+    - name: Upload release archive
+      uses: svenstaro/upload-release-action@v2
+      with:
+        repo_token: ${{ secrets.GITHUB_TOKEN }}
+        file: MultiAddonManager-*-linux.tar.gz
+        tag: ${{ github.ref }}
+        file_glob: true
