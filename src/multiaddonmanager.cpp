@@ -721,7 +721,7 @@ void MultiAddonManager::AddClientAddon(const char *pszAddon, uint64 steamID64, b
 		FOR_EACH_VEC(clients, i)
 		{
 			CServerSideClient *pClient = clients[i];
-			if (steamID64 == 0 || pClient->GetClientSteamID()->ConvertToUint64() == steamID64)
+			if (steamID64 == 0 || pClient->GetClientSteamID().ConvertToUint64() == steamID64)
 			{
 				// Client is already loading, telling them to reload now will actually just disconnect them. ("Received signon %i when at %i\n" in client console)
 				if (pClient->GetSignonState() == SIGNONSTATE_CHANGELEVEL)
@@ -894,7 +894,7 @@ bool FASTCALL Hook_SendNetMessage(CServerSideClient *pClient, CNetMessage *pData
 {
 	NetMessageInfo_t *info = pData->GetNetMessage()->GetNetMessageInfo();
 	
-	uint64 steamID64 = pClient->GetClientSteamID()->ConvertToUint64();
+	uint64 steamID64 = pClient->GetClientSteamID().ConvertToUint64();
 	ClientAddonInfo_t &clientInfo = g_ClientAddons[steamID64];
 	
 	// If we are sending a message to the client, that means the client is still active.
@@ -1088,7 +1088,7 @@ int MultiAddonManager::Hook_LoadEventsFromFile(const char *filename, bool bSearc
 
 void FASTCALL Hook_ReplyConnection(INetworkGameServer *server, CServerSideClient *client)
 {
-	uint64 steamID64 = client->GetClientSteamID()->ConvertToUint64();
+	uint64 steamID64 = client->GetClientSteamID().ConvertToUint64();
 	// Clear cache if necessary.
 	ClientAddonInfo_t &clientInfo = g_ClientAddons[steamID64];
 	if (mm_cache_clients_with_addons.Get() && mm_cache_clients_duration.Get() != 0 && Plat_FloatTime() - clientInfo.lastActiveTime > mm_cache_clients_duration.Get())
