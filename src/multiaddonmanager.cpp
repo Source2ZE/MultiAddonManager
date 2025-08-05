@@ -53,7 +53,7 @@ void Message(const char *msg, ...)
 	char buf[1024] = {};
 	V_vsnprintf(buf, sizeof(buf) - 1, msg, args);
 
-	LoggingSystem_Log(0, LS_MESSAGE, Color(0, 255, 200), "[MultiAddonManager] %s", buf);
+	LoggingSystem_Log(2, LS_MESSAGE, Color(0, 255, 200), "[MultiAddonManager] %s", buf);
 
 	va_end(args);
 }
