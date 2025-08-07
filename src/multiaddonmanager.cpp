@@ -961,7 +961,11 @@ void FASTCALL Hook_SetPendingHostStateRequest(CHostStateMgr* pMgrDoNotUse, CHost
 	
 	if (!pRequest->m_pKV)
 	{
-		g_MultiAddonManager.ClearCurrentWorkshopMap();
+		// Workshop map changes from end of match votes have null keyvalues
+		if (!pRequest->m_Addons.IsEmpty())
+			g_MultiAddonManager.SetCurrentWorkshopMap(pRequest->m_Addons);
+		else
+			g_MultiAddonManager.ClearCurrentWorkshopMap();
 	}
 	else if (V_stricmp(pRequest->m_pKV->GetName(), "ChangeLevel"))
 	{
