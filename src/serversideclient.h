@@ -18,12 +18,6 @@ class CNetworkGameServerBase;
 class CNetworkGameServer;
 class CUtlSlot;
 
-abstract_class INetworkChannelNotify
-{
-public:
-	virtual void OnShutdownChannel(INetChannel * pChannel) = 0;
-};
-
 enum CopiedLockState_t : int32
 {
 	CLS_NOCOPY = 0,
