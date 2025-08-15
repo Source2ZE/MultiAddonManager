@@ -45,6 +45,8 @@ CConVar<bool> mm_cache_clients_with_addons("mm_cache_clients_with_addons", FCVAR
 CConVar<float> mm_cache_clients_duration("mm_cache_clients_duration", FCVAR_NONE, "How long to cache clients' downloaded addons list in seconds, pass 0 for forever.", 0.0f);
 CConVar<float> mm_extra_addons_timeout("mm_extra_addons_timeout", FCVAR_NONE, "How long until clients are timed out in between connects for extra addons in seconds, requires mm_extra_addons to be used", 10.f);
 
+CConVar<bool> mm_addon_debug("mm_addon_debug", FCVAR_NONE, "Whether to print some extra debug information", false);
+
 void Message(const char *msg, ...)
 {
 	va_list args;
@@ -566,7 +568,6 @@ void MultiAddonManager::Hook_GameServerSteamAPIActivated()
 	g_SteamAPI.Init();
 	m_CallbackDownloadItemResult.Register(this, &MultiAddonManager::OnAddonDownloaded);
 
-	Message("Refreshing addons to check for updates\n");
 	RefreshAddons(true);
 
 	RETURN_META(MRES_IGNORED);
@@ -875,8 +876,6 @@ CON_COMMAND_F(mm_print_searchpaths_client, "Print search paths client-side, only
 
 void MultiAddonManager::Hook_StartupServer(const GameSessionConfiguration_t &config, ISource2WorldSession *session, const char *mapname)
 {
-	Message("Hook_StartupServer: %s\n", mapname);
-
 	gpGlobals = g_pEngineServer->GetServerGlobals();
 	g_pNetworkGameServer = g_pNetworkServerService->GetIGameServer();
 
@@ -941,8 +940,10 @@ bool FASTCALL Hook_SendNetMessage(CServerSideClient *pClient, CNetMessage *pData
 		return g_pfnSendNetMessage(pClient, pData, bufType);
 	}
 
+	if (mm_addon_debug.Get())
+		Message("%s: Number of addons remaining to download for %lli: %d\n", __func__, steamID64, addons.Count());
+
 	// Otherwise, send the next addon to the client.
-	Message("%s: Number of addons remaining to download for %lli: %d\n", __func__, steamID64, addons.Count());
 	clientInfo.currentPendingAddon = addons.Head();
 	pMsg->set_addons(addons.Head().c_str());
 	pMsg->set_signon_state(SIGNONSTATE_CHANGELEVEL);
@@ -1016,11 +1017,14 @@ bool MultiAddonManager::Hook_ClientConnect( CPlayerSlot slot, const char *pszNam
 	{
 		if (Plat_FloatTime() - clientInfo.lastActiveTime > mm_extra_addons_timeout.Get())
 		{
-			Message("%s: Client %lli has reconnected after the timeout or did not receive the addon message, will not add addon %s to the downloaded list\n", __func__, steamID64, clientInfo.currentPendingAddon.c_str());
+			if (mm_addon_debug.Get())
+				Message("%s: Client %lli has reconnected after the timeout or did not receive the addon message, will not add addon %s to the downloaded list\n", __func__, steamID64, clientInfo.currentPendingAddon.c_str());
 		}
 		else
 		{
-			Message("%s: Client %lli has connected within the interval with the pending addon %s, will send next addon in SendNetMessage hook\n", __func__, steamID64, clientInfo.currentPendingAddon.c_str());
+			if (mm_addon_debug.Get())
+				Message("%s: Client %lli has connected within the interval with the pending addon %s, will send next addon in SendNetMessage hook\n", __func__, steamID64, clientInfo.currentPendingAddon.c_str());
+
 			clientInfo.downloadedAddons.AddToTail(clientInfo.currentPendingAddon);
 		}
 		// Reset the current pending addon anyway, SendNetMessage tells us which addon to download next.
@@ -1040,9 +1044,7 @@ void MultiAddonManager::Hook_ClientActive(CPlayerSlot slot, bool bLoadGame, cons
 {
 	// When the client reaches this stage, they should already have all the necessary addons downloaded, so we can safely remove the downloaded addons list here.
 	if (!mm_cache_clients_with_addons.Get())
-	{
 		g_ClientAddons[steamID64].downloadedAddons.RemoveAll();
-	}
 }
 
 void MultiAddonManager::Hook_GameFrame(bool simulating, bool bFirstTick, bool bLastTick)
@@ -1097,7 +1099,9 @@ void FASTCALL Hook_ReplyConnection(INetworkGameServer *server, CServerSideClient
 	ClientAddonInfo_t &clientInfo = g_ClientAddons[steamID64];
 	if (mm_cache_clients_with_addons.Get() && mm_cache_clients_duration.Get() != 0 && Plat_FloatTime() - clientInfo.lastActiveTime > mm_cache_clients_duration.Get())
 	{
-		Message("%s: Client %lli has not connected for a while, clearing the cache\n", __func__, steamID64);
+		if (mm_addon_debug.Get())
+			Message("%s: Client %lli has not connected for a while, clearing the cache\n", __func__, steamID64);
+
 		clientInfo.currentPendingAddon.clear();
 		clientInfo.downloadedAddons.RemoveAll();
 	}
@@ -1124,7 +1128,9 @@ void FASTCALL Hook_ReplyConnection(INetworkGameServer *server, CServerSideClient
 	
 	*addons = VectorToString(clientAddons).c_str();
 
-	Message("%s: Sending addons %s to steamID64 %lli\n", __func__, addons->Get(), steamID64);
+	if (mm_addon_debug.Get())
+		Message("%s: Sending addons %s to steamID64 %lli\n", __func__, addons->Get(), steamID64);
+
 	g_pfnReplyConnection(server, client);
 
 	*addons = originalAddons;
