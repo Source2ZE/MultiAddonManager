@@ -14,6 +14,7 @@ A MetaMod plugin that allows you to use multiple workshop addons at once and hav
 - `mm_cache_clients_with_addons <0/1> (default 0)` If enabled, the plugin will keep track of which addons client SteamIDs have downloaded to prevent sending them addons when they already have them (i.e. when they rejoin or the map changes).
 - `mm_cache_clients_duration <0/seconds> (default 0)` How long to cache clients' downloaded addons list, pass 0 for forever.
 - `mm_block_disconnect_messages <0/1> (default 0)` If enabled, the plugin will block *ALL* disconnect events with the "loop shutdown" reason. This will prevent disconnect chat messsages whenever someone reconnects because they're getting an addon.
+- `mm_addon_debug <0/1> (default 0)` Whether to print some extra debug information (mainly when clients are joining)
 
 ## Commands
 - `mm_download_addon <id>` Download an addon manually.
