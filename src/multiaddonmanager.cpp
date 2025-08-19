@@ -962,10 +962,16 @@ void FASTCALL Hook_SetPendingHostStateRequest(CHostStateMgr* pMgrDoNotUse, CHost
 	
 	if (!pRequest->m_pKV)
 	{
+		// g_pEngineServer->IsMapValid takes into account mounted addons so we have to do this instead
+		char szFileName[MAX_PATH];
+		V_snprintf(szFileName, sizeof(szFileName), "maps/%s.vpk", pRequest->m_LevelName.Get());
+		bool bValveMap = g_pFullFileSystem->FileExists(szFileName, "MOD");
+
 		// Workshop map changes from end of match votes have null keyvalues
+		// ...and when such votes lead to reloading the CURRENT map, m_Addons will also be null, in which case we want to keep the workshop map unchanged
 		if (!pRequest->m_Addons.IsEmpty())
 			g_MultiAddonManager.SetCurrentWorkshopMap(pRequest->m_Addons);
-		else
+		else if (bValveMap) // Sadly this will include any workshop maps that share names with shipped Valve maps, but at this point there's no way to tell
 			g_MultiAddonManager.ClearCurrentWorkshopMap();
 	}
 	else if (V_stricmp(pRequest->m_pKV->GetName(), "ChangeLevel"))
