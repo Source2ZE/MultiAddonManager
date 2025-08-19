@@ -1,7 +1,7 @@
 /**
  * =============================================================================
  * MultiAddonManager
- * Copyright (C) 2024 xen
+ * Copyright (C) 2024-2025 xen
  * =============================================================================
  *
  * This program is free software; you can redistribute it and/or modify it under
@@ -1024,12 +1024,14 @@ bool MultiAddonManager::Hook_ClientConnect( CPlayerSlot slot, const char *pszNam
 		if (Plat_FloatTime() - clientInfo.lastActiveTime > mm_extra_addons_timeout.Get())
 		{
 			if (mm_addon_debug.Get())
-				Message("%s: Client %lli has reconnected after the timeout or did not receive the addon message, will not add addon %s to the downloaded list\n", __func__, steamID64, clientInfo.currentPendingAddon.c_str());
+				Message("%s: Client %lli has reconnected after the timeout or did not receive the addon message, will not add addon %s to the downloaded list\n",
+					__func__, steamID64, clientInfo.currentPendingAddon.c_str());
 		}
 		else
 		{
 			if (mm_addon_debug.Get())
-				Message("%s: Client %lli has connected within the interval with the pending addon %s, will send next addon in SendNetMessage hook\n", __func__, steamID64, clientInfo.currentPendingAddon.c_str());
+				Message("%s: Client %lli has connected within the interval with the pending addon %s, will send next addon in SendNetMessage hook\n",
+					__func__, steamID64, clientInfo.currentPendingAddon.c_str());
 
 			clientInfo.downloadedAddons.AddToTail(clientInfo.currentPendingAddon);
 		}
@@ -1140,44 +1142,4 @@ void FASTCALL Hook_ReplyConnection(INetworkGameServer *server, CServerSideClient
 	g_pfnReplyConnection(server, client);
 
 	*addons = originalAddons;
-}
-
-const char *MultiAddonManager::GetLicense()
-{
-	return "GPL v3 License";
-}
-
-const char *MultiAddonManager::GetVersion()
-{
-	return MULTIADDONMANAGER_VERSION; // defined by the build script
-}
-
-const char *MultiAddonManager::GetDate()
-{
-	return __DATE__;
-}
-
-const char *MultiAddonManager::GetLogTag()
-{
-	return "MultiAddonManager";
-}
-
-const char *MultiAddonManager::GetAuthor()
-{
-	return "xen";
-}
-
-const char *MultiAddonManager::GetDescription()
-{
-	return "Multi Addon Manager";
-}
-
-const char *MultiAddonManager::GetName()
-{
-	return "MultiAddonManager";
-}
-
-const char *MultiAddonManager::GetURL()
-{
-	return "https://github.com/Source2ZE/MultiAddonManager";
 }

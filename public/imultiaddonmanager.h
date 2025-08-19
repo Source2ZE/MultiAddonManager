@@ -1,7 +1,7 @@
 /**
  * =============================================================================
  * MultiAddonManager
- * Copyright (C) 2024 xen
+ * Copyright (C) 2024-2025 xen
  * =============================================================================
  *
  * This program is free software; you can redistribute it and/or modify it under

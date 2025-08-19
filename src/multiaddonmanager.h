@@ -1,7 +1,7 @@
 /**
  * =============================================================================
  * MultiAddonManager
- * Copyright (C) 2024 xen
+ * Copyright (C) 2024-2025 xen
  * =============================================================================
  *
  * This program is free software; you can redistribute it and/or modify it under
@@ -76,14 +76,14 @@ public: //hooks
 	void GetClientAddons(CUtlVector<std::string> &addons, uint64 steamID64 = 0);
 
 public:
-	const char *GetAuthor();
-	const char *GetName();
-	const char *GetDescription();
-	const char *GetURL();
-	const char *GetLicense();
-	const char *GetVersion();
-	const char *GetDate();
-	const char *GetLogTag();
+	const char *GetAuthor() override		{ return "xen"; }
+	const char *GetName() override			{ return "MultiAddonManager"; }
+	const char *GetDescription() override	{ return "Multi Addon Manager"; }
+	const char *GetURL() override			{ return "https://github.com/Source2ZE/MultiAddonManager"; }
+	const char *GetLicense() override		{ return "GPL v3 License"; }
+	const char *GetVersion() override		{ return MULTIADDONMANAGER_VERSION; }  // defined by the build script
+	const char *GetDate() override			{ return __DATE__; }
+	const char *GetLogTag() override		{ return "MultiAddonManager"; }
 
 	CUtlVector<std::string> m_ExtraAddons;
 

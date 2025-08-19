@@ -1,7 +1,10 @@
 /**
  * =============================================================================
  * MultiAddonManager
- * Copyright (C) 2023-2024 Source2ZE
+ * Copyright (C) 2023-2025 Source2ZE
+ *
+ * DynLibUtils
+ * Copyright (C) 2023 komashchenko (Phoenix)
  * =============================================================================
  *
  * This program is free software; you can redistribute it and/or modify it under
