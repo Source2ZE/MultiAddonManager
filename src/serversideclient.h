@@ -67,51 +67,44 @@ public:
 	virtual ~CServerSideClientBase() = 0;
 
 public:
-	CPlayerSlot GetPlayerSlot() const { return m_nClientSlot; }
-	CPlayerUserId GetUserID() const { return m_UserID; }
-	CEntityIndex GetEntityIndex() const { return m_nEntityIndex; }
-	CSteamID GetClientSteamID() const { return m_SteamID; }
-	const char* GetClientName() const { return m_Name; }
-	INetChannel* GetNetChannel() const { return m_NetChannel; }
-	const netadr_t* GetRemoteAddress() const { return &m_nAddr.GetAddress(); }
-	CNetworkGameServerBase* GetServer() const { return m_Server; }
+	virtual void			Connect( int socket, const char* pszName, int nUserID, INetChannel* pNetChannel, uint8 nConnectionTypeFlags, uint32 uChallengeNumber ) = 0;
+	virtual void			Inactivate( const char *pszAddons ) = 0;
+	virtual void			Reactivate( CPlayerSlot nSlot ) = 0;
+	virtual void			SetServer( CNetworkGameServer *pNetServer ) = 0;
+	virtual void			Reconnect() = 0;
+	virtual void			Disconnect( ENetworkDisconnectionReason reason, const char *pszInternalReason ) = 0;
+	virtual bool			CheckConnect() = 0;
+	virtual void			Create( CPlayerSlot &nSlot, CSteamID nSteamID, const char *pszName ) = 0;
+	virtual void			SetRate( int nRate ) = 0;
+	virtual void			SetUpdateRate( float fUpdateRate ) = 0;
+	virtual int				GetRate() = 0;
 
-	virtual void Connect(int socket, const char* pszName, int nUserID, INetChannel* pNetChannel, bool bFakePlayer, bool bSplitClient, int iClientPlatform) = 0;
-	virtual void Inactivate() = 0;
-	virtual void Reactivate(CPlayerSlot nSlot) = 0;
-	virtual void SetServer(CNetworkGameServer* pNetServer) = 0;
-	virtual void Reconnect() = 0;
-	virtual void Disconnect(ENetworkDisconnectionReason reason) = 0;
-	virtual bool CheckConnect() = 0;
+	virtual void			Clear() = 0;
 
-private:
-	virtual void unk_10() = 0;
+	virtual bool			ExecuteStringCommand( const void* msg ) = 0; // "false" trigger an anti spam counter to kick a client.
+	virtual bool			SendNetMessage( const CNetMessage *pData, NetChannelBufType_t bufType = BUF_DEFAULT ) = 0;
+	virtual bool			FilterMessage( const CNetMessage *pData, INetChannel *pChannel ) = 0; // "Client %d(%s) tried to send a RebroadcastSourceId msg.\n"
 
-public:
-	virtual void SetRate(int nRate) = 0;
-	virtual void SetUpdateRate(float fUpdateRate) = 0;
-	virtual int GetRate() = 0;
+	virtual void			ClientPrintf(PRINTF_FORMAT_STRING const char*, ...) = 0;
 
-	virtual void Clear() = 0;
+	virtual bool			IsFakeClient() = 0;
+	virtual bool			IsHumanPlayer() = 0;
 
-	virtual bool ExecuteStringCommand(const CNetMessagePB<CNETMsg_StringCmd>& msg) = 0;
-	virtual void SendNetMessage(const CNetMessage* pData, NetChannelBufType_t bufType) = 0;
-
-#ifdef LINUX
-private:
-	virtual void unk_17() = 0;
-#endif
-
-public:
-	virtual void ClientPrintf(PRINTF_FORMAT_STRING const char*, ...) = 0;
-
-	bool IsConnected() const { return m_nSignonState >= SIGNONSTATE_CONNECTED; }
-	bool IsInGame() const { return m_nSignonState == SIGNONSTATE_FULL; }
-	bool IsSpawned() const { return m_nSignonState >= SIGNONSTATE_NEW; }
-	bool IsActive() const { return m_nSignonState == SIGNONSTATE_FULL; }
-	int GetSignonState() const { return m_nSignonState; }
-	virtual bool IsFakeClient() const { return m_bFakePlayer; }
-	virtual bool IsHLTV() = 0;
+	CPlayerSlot				GetPlayerSlot() const { return m_nClientSlot; }
+	CPlayerUserId			GetUserID() const { return m_UserID; }
+	CEntityIndex			GetEntityIndex() const { return m_nEntityIndex; }
+	CSteamID				GetClientSteamID() const { return m_SteamID; }
+	const char				*GetClientName() const { return m_Name; }
+	INetChannel				*GetNetChannel() const { return m_NetChannel; }
+	const netadr_t			*GetRemoteAddress() const { return &m_nAddr.GetAddress(); }
+	CNetworkGameServerBase  *GetServer() const { return m_Server; }
+		
+	bool					IsConnected() const { return m_nSignonState >= SIGNONSTATE_CONNECTED; }
+	bool					IsInGame() const { return m_nSignonState == SIGNONSTATE_FULL; }
+	bool					IsSpawned() const { return m_nSignonState >= SIGNONSTATE_NEW; }
+	bool					IsActive() const { return m_nSignonState == SIGNONSTATE_FULL; }
+	int						GetSignonState() const { return m_nSignonState; }
+	bool					IsHLTV() const { return m_bIsHLTV; }
 
 public:
 	CUtlString m_UserIDString;
