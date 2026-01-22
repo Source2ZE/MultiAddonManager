@@ -152,10 +152,10 @@ constexpr int g_iServerAddonsOffset = 336;
 
 #ifdef PLATFORM_WINDOWS
 constexpr int g_iSendNetMessageOffset = 15;
-constexpr int g_iClientListOffset = 624;
+constexpr int g_iClientListOffset = 592;
 #else
 constexpr int g_iSendNetMessageOffset = 16;
-constexpr int g_iClientListOffset = 640;
+constexpr int g_iClientListOffset = 592;
 #endif
 
 /* 
