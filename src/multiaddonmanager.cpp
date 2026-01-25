@@ -148,7 +148,7 @@ constexpr const byte g_ReplyConnection_Sig[] = "\x55\x48\x8D\x05\x2A\x2A\x2A\x2A
 
 
 // Offsets
-constexpr int g_iServerAddonsOffset = 336;
+constexpr int g_iServerAddonsOffset = 344;
 
 #ifdef PLATFORM_WINDOWS
 constexpr int g_iSendNetMessageOffset = 15;
