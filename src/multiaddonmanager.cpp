@@ -115,18 +115,22 @@ ISteamUGC *GetSteamUGC()
 typedef bool (FASTCALL *SendNetMessage_t)(CServerSideClient *, CNetMessage*, NetChannelBufType_t);
 typedef void (FASTCALL *HostStateRequest_t)(CHostStateMgr*, CHostStateRequest*);
 typedef void (FASTCALL *ReplyConnection_t)(INetworkGameServer *, CServerSideClient *);
+typedef uint64 (FASTCALL *ScriptGetAddon_t)();
 
 bool FASTCALL Hook_SendNetMessage(CServerSideClient *pClient, CNetMessage *pData, NetChannelBufType_t bufType);
 void FASTCALL Hook_SetPendingHostStateRequest(CHostStateMgr*, CHostStateRequest*);
 void FASTCALL Hook_ReplyConnection(INetworkGameServer *, CServerSideClient *);
+uint64 FASTCALL Hook_ScriptGetAddon();
 
 SendNetMessage_t g_pfnSendNetMessage = nullptr;
 HostStateRequest_t g_pfnSetPendingHostStateRequest = nullptr;
 ReplyConnection_t g_pfnReplyConnection = nullptr;
+ScriptGetAddon_t g_pfnScriptGetAddon = nullptr;
 
 funchook_t *g_pSendNetMessageHook = nullptr;
 funchook_t *g_pSetPendingHostStateRequest = nullptr;
 funchook_t *g_pReplyConnectionHook = nullptr;
+funchook_t *g_pScriptGetAddonHook = nullptr;
 
 int g_iLoadEventsFromFileHookId = -1;
 
@@ -146,24 +150,26 @@ SH_DECL_HOOK2(IGameEventManager2, LoadEventsFromFile, SH_NOATTRIB, 0, int, const
 
 // "Discarding pending request '%s, %u'\n"
 // "Sending S2C_CONNECTION to %s [addons:'%s']\n"
+// First call without args in func with "Saving existing workshop save file from %s\n"
 #ifdef PLATFORM_WINDOWS
 constexpr const byte g_HostStateRequest_Sig[] = "\x48\x89\x74\x24\x2A\x57\x48\x83\xEC\x2A\x33\xF6\x48\x8B\xFA\x48\x39\x35";
 constexpr const byte g_ReplyConnection_Sig[] = "\x48\x8B\xC4\x55\x41\x55\x41\x56";
+constexpr const byte g_ScriptGetAddon_Sig[] = "\x40\x56\x48\x83\xEC\x2A\x48\x8B\x0D";
 #else
 constexpr const byte g_HostStateRequest_Sig[] = "\x55\x48\x89\xE5\x41\x57\x41\x56\x41\x55\x41\x54\x49\x89\xFC\x53\x48\x89\xF3\x48\x83\xEC\x2A\x48\x83\x7F\x2A\x2A\x74\x2A\x8B\x3D";
 constexpr const byte g_ReplyConnection_Sig[] = "\x55\x48\x8D\x05\x2A\x2A\x2A\x2A\x66\x0F\xEF\xC0\x48\x89\xE5\x41\x57\x41\x56\x41\x55\x41\x54\x49\x89\xFC";
+constexpr const byte g_ScriptGetAddon_Sig[] = "\x55\x48\x89\xE5\x41\x55\x41\x54\x48\x8D\x75\x2A\x53\x48\x83\xEC\x2A\x48\x8D\x05\x2A\x2A\x2A\x2A\x48\xC7\x45\x2A\x2A\x2A\x2A\x2A\x48\xC7\x45\x2A\x2A\x2A\x2A\x2A\x48\x8B\x38\x48\x8B\x07\xFF\x90\x2A\x2A\x2A\x2A\x8B\x55";
 #endif
 
 
 // Offsets
 constexpr int g_iServerAddonsOffset = 344;
+constexpr int g_iClientListOffset = 592;
 
 #ifdef PLATFORM_WINDOWS
 constexpr int g_iSendNetMessageOffset = 15;
-constexpr int g_iClientListOffset = 592;
 #else
 constexpr int g_iSendNetMessageOffset = 16;
-constexpr int g_iClientListOffset = 592;
 #endif
 
 /* 
@@ -286,6 +292,23 @@ bool MultiAddonManager::Load(PluginId id, ISmmAPI *ismm, char *error, size_t max
 	funchook_prepare(g_pReplyConnectionHook, (void**)&g_pfnReplyConnection, (void*)Hook_ReplyConnection);
 	funchook_install(g_pReplyConnectionHook, 0);
 	
+	g_pfnScriptGetAddon = (ScriptGetAddon_t)serverModule.FindSignature(g_ScriptGetAddon_Sig, sizeof(g_ScriptGetAddon_Sig) - 1, sig_error);
+
+	if (!g_pfnScriptGetAddon)
+	{
+		V_snprintf(error, maxlen, "Could not find the signature for ScriptGetAddon\n");
+		Panic("%s", error);
+		return false;
+	}
+	else if (sig_error == SIG_FOUND_MULTIPLE)
+	{
+		Panic("Signature for ScriptGetAddon occurs multiple times! Using first match but this might end up crashing!\n");
+	}
+
+	g_pScriptGetAddonHook = funchook_create();
+	funchook_prepare(g_pScriptGetAddonHook, (void**)&g_pfnScriptGetAddon, (void*)Hook_ScriptGetAddon);
+	funchook_install(g_pScriptGetAddonHook, 0);
+	
 	SH_ADD_HOOK(IServerGameDLL, GameServerSteamAPIActivated, g_pSource2Server, SH_MEMBER(this, &MultiAddonManager::Hook_GameServerSteamAPIActivated), false);
 	SH_ADD_HOOK(INetworkServerService, StartupServer, g_pNetworkServerService, SH_MEMBER(this, &MultiAddonManager::Hook_StartupServer), true);
 	SH_ADD_HOOK(IServerGameClients, ClientConnect, g_pSource2GameClients, SH_MEMBER(this, &MultiAddonManager::Hook_ClientConnect), false);
@@ -343,6 +366,18 @@ bool MultiAddonManager::Unload(char *error, size_t maxlen)
 	{
 		funchook_uninstall(g_pSendNetMessageHook, 0);
 		funchook_destroy(g_pSendNetMessageHook);
+	}
+
+	if (g_pReplyConnectionHook)
+	{
+		funchook_uninstall(g_pReplyConnectionHook, 0);
+		funchook_destroy(g_pReplyConnectionHook);
+	}
+
+	if (g_pScriptGetAddonHook)
+	{
+		funchook_uninstall(g_pScriptGetAddonHook, 0);
+		funchook_destroy(g_pScriptGetAddonHook);
 	}
 	
 	return true;
@@ -1146,4 +1181,17 @@ void FASTCALL Hook_ReplyConnection(INetworkGameServer *server, CServerSideClient
 	g_pfnReplyConnection(server, client);
 
 	*addons = originalAddons;
+}
+
+uint64 FASTCALL Hook_ScriptGetAddon()
+{
+	if (!g_MultiAddonManager.m_ExtraAddons.Count())
+		return g_pfnScriptGetAddon();
+
+	uint64 iAddon = V_StringToUint64(g_MultiAddonManager.GetCurrentWorkshopMap().c_str(), 0);
+	
+	if (!iAddon)
+		return g_pfnScriptGetAddon();
+
+	return iAddon;
 }
