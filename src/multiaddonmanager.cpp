@@ -104,6 +104,14 @@ std::string VectorToString(CUtlVector<std::string> &vector)
 	return result;
 }
 
+ISteamUGC *GetSteamUGC()
+{
+	if (g_pEngineServer->IsDedicatedServer())
+		return SteamGameServerUGC();
+	else
+		return SteamUGC();
+}
+
 typedef bool (FASTCALL *SendNetMessage_t)(CServerSideClient *, CNetMessage*, NetChannelBufType_t);
 typedef void (FASTCALL *HostStateRequest_t)(CHostStateMgr*, CHostStateRequest*);
 typedef void (FASTCALL *ReplyConnection_t)(INetworkGameServer *, CServerSideClient *);
@@ -210,7 +218,6 @@ CConVar<CUtlString> mm_client_extra_addons("mm_client_extra_addons", FCVAR_NONE,
 
 MultiAddonManager g_MultiAddonManager;
 INetworkGameServer *g_pNetworkGameServer = nullptr;
-CSteamGameServerAPIContext g_SteamAPI;
 CGlobalVars *gpGlobals = nullptr;
 IGameEventSystem *g_pGameEventSystem = nullptr;
 IGameEventManager2 *g_pGameEventManager = nullptr;
@@ -298,9 +305,8 @@ bool MultiAddonManager::Load(PluginId id, ISmmAPI *ismm, char *error, size_t max
 	{
 		g_pNetworkGameServer = g_pNetworkServerService->GetIGameServer();
 		gpGlobals = g_pEngineServer->GetServerGlobals();
-		if (!CommandLine()->HasParm("-dedicated"))
+		if (g_pEngineServer->IsDedicatedServer())
 		{
-			g_SteamAPI.Init();
 			m_CallbackDownloadItemResult.Register(this, &MultiAddonManager::OnAddonDownloaded);
 		}
 	}
@@ -381,7 +387,7 @@ bool MultiAddonManager::MountAddon(const char *pszAddon, bool bAddToTail = false
 	}
 
 	PublishedFileId_t iAddon = V_StringToUint64(pszAddon, 0);
-	uint32 iAddonState = g_SteamAPI.SteamUGC()->GetItemState(iAddon);
+	uint32 iAddonState = GetSteamUGC()->GetItemState(iAddon);
 
 	if (iAddonState & k_EItemStateLegacyItem)
 	{
@@ -461,7 +467,7 @@ void MultiAddonManager::PrintDownloadProgress()
 	uint64 iBytesDownloaded = 0;
 	uint64 iTotalBytes = 0;
 
-	if (!g_SteamAPI.SteamUGC()->GetItemDownloadInfo(m_DownloadQueue.Head(), &iBytesDownloaded, &iTotalBytes) || !iTotalBytes)
+	if (!GetSteamUGC()->GetItemDownloadInfo(m_DownloadQueue.Head(), &iBytesDownloaded, &iTotalBytes) || !iTotalBytes)
 		return;
 
 	double flMBDownloaded = (double)iBytesDownloaded / 1024 / 1024;
@@ -478,7 +484,7 @@ void MultiAddonManager::PrintDownloadProgress()
 // Internally, downloads are queued up and processed one at a time
 bool MultiAddonManager::DownloadAddon(const char *pszAddon, bool bImportant, bool bForce)
 {
-	if (!g_SteamAPI.SteamUGC())
+	if (!GetSteamUGC())
 	{
 		Panic("%s: Cannot download addons as the Steam API is not initialized\n", __func__);
 		return false;
@@ -498,7 +504,7 @@ bool MultiAddonManager::DownloadAddon(const char *pszAddon, bool bImportant, boo
 		return false;
 	}
 
-	uint32 nItemState = g_SteamAPI.SteamUGC()->GetItemState(addon);
+	uint32 nItemState = GetSteamUGC()->GetItemState(addon);
 
 	if (!bForce && (nItemState & k_EItemStateInstalled))
 	{
@@ -506,7 +512,7 @@ bool MultiAddonManager::DownloadAddon(const char *pszAddon, bool bImportant, boo
 		return true;
 	}
 
-	if (!g_SteamAPI.SteamUGC()->DownloadItem(addon, false))
+	if (!GetSteamUGC()->DownloadItem(addon, false))
 	{
 		Panic("%s: Addon download for %lli failed to start, addon ID is invalid or server is not logged on Steam\n", __func__, addon);
 		return false;
@@ -524,7 +530,7 @@ bool MultiAddonManager::DownloadAddon(const char *pszAddon, bool bImportant, boo
 
 void MultiAddonManager::RefreshAddons(bool bReloadMap)
 {
-	if (!g_SteamAPI.SteamUGC())
+	if (!GetSteamUGC())
 		return;
 
 	Message("Refreshing addons (%s)\n", VectorToString(m_ExtraAddons).c_str());
@@ -559,13 +565,11 @@ void MultiAddonManager::ClearAddons()
 void MultiAddonManager::Hook_GameServerSteamAPIActivated()
 {
 	// This is only intended for dedicated servers
-	// Also if this is somehow called again don't do anything
-	if (!CommandLine()->HasParm("-dedicated") || g_SteamAPI.SteamUGC())
-		return;
+	if (!g_pEngineServer->IsDedicatedServer())
+		RETURN_META(MRES_IGNORED);
 
 	Message("Steam API Activated\n");
 
-	g_SteamAPI.Init();
 	m_CallbackDownloadItemResult.Register(this, &MultiAddonManager::OnAddonDownloaded);
 
 	RefreshAddons(true);
@@ -682,7 +686,7 @@ CNetMessagePB<CNETMsg_SignonState> *GetAddonSignonStateMessage(const char *pszAd
 
 bool MultiAddonManager::HasUGCConnection()
 {
-	return g_SteamAPI.SteamUGC() != nullptr;
+	return GetSteamUGC() != nullptr;
 }
 
 void MultiAddonManager::AddClientAddon(const char *pszAddon, uint64 steamID64, bool bRefresh)
@@ -815,7 +819,7 @@ CON_COMMAND_F(mm_add_client_addon, "Add a workshop ID to the global client-only 
 {
 	if (args.ArgC() < 2)
 	{
-		Msg("Usage: %s <ID>\n", args[0]);
+		Message("Usage: %s <ID>\n", args[0]);
 		return;
 	}
 	g_MultiAddonManager.AddClientAddon(args[1]);
@@ -825,7 +829,7 @@ CON_COMMAND_F(mm_remove_client_addon, "Remove a workshop ID from the global clie
 {
 	if (args.ArgC() < 2)
 	{
-		Msg("Usage: %s <ID>\n", args[0]);
+		Message("Usage: %s <ID>\n", args[0]);
 		return;
 	}
 	g_MultiAddonManager.RemoveClientAddon(args[1]);
@@ -835,7 +839,7 @@ CON_COMMAND_F(mm_add_addon, "Add a workshop ID to the extra addon list", FCVAR_S
 {
 	if (args.ArgC() < 2)
 	{
-		Msg("Usage: %s <ID>\n", args[0]);
+		Message("Usage: %s <ID>\n", args[0]);
 		return;
 	}
 
@@ -846,7 +850,7 @@ CON_COMMAND_F(mm_remove_addon, "Remove a workshop ID from the extra addon list",
 {
 	if (args.ArgC() < 2)
 	{
-		Msg("Usage: %s <ID>\n", args[0]);
+		Message("Usage: %s <ID>\n", args[0]);
 		return;
 	}
 
@@ -899,7 +903,7 @@ bool FASTCALL Hook_SendNetMessage(CServerSideClient *pClient, CNetMessage *pData
 	// If we are sending a message to the client, that means the client is still active.
 	clientInfo.lastActiveTime = Plat_FloatTime();
 
-	if (info->m_MessageId != net_SignonState || !CommandLine()->HasParm("-dedicated"))
+	if (info->m_MessageId != net_SignonState || !g_pEngineServer->IsDedicatedServer())
 		return g_pfnSendNetMessage(pClient, pData, bufType);
 
 	auto pMsg = pData->ToPB<CNETMsg_SignonState>();
@@ -1015,7 +1019,7 @@ bool MultiAddonManager::Hook_ClientConnect( CPlayerSlot slot, const char *pszNam
 	CUtlVector<std::string> addons;
 	GetClientAddons(addons, steamID64);
 	// We don't have an extra addon set so do nothing here, also don't do anything if we're a listenserver
-	if (addons.Count() == 0 || !CommandLine()->HasParm("-dedicated"))
+	if (addons.Count() == 0 || !g_pEngineServer->IsDedicatedServer())
 		RETURN_META_VALUE(MRES_IGNORED, true);
 	ClientAddonInfo_t &clientInfo = g_ClientAddons[steamID64];
 
