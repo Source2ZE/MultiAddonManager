@@ -1174,15 +1174,13 @@ void FASTCALL Hook_ReplyConnection(INetworkGameServer *server, CServerSideClient
 		g_ClientAddons[steamID64].currentPendingAddon = clientAddons[0];
 
 	// In some cases, clients can do a signature check on addons which fails and instantly disconnects them
-	// As a mitigation, remove all pending addons from S2C_CONNECTION except for the first one
-	int iAddonCount = clientAddons.Count();
-
-	if (!g_ClientAddons[steamID64].currentPendingAddon.empty() && iAddonCount > 1)
+	// As a mitigation, remove all undownloaded addons so the client never does the failing signature check
+	FOR_EACH_VEC_BACK(clientAddons, i)
 	{
-		int iNextAddonIndex = clientAddons.Find(g_ClientAddons[steamID64].currentPendingAddon) + 1;
+		if (g_ClientAddons[steamID64].downloadedAddons.Find(clientAddons[i]) != -1 || clientAddons[i] == g_ClientAddons[steamID64].currentPendingAddon)
+			continue;
 
-		if (iNextAddonIndex > 0 && iNextAddonIndex < iAddonCount)
-			clientAddons.RemoveMultiple(iNextAddonIndex, iAddonCount - iNextAddonIndex);
+		clientAddons.Remove(i);
 	}
 	
 	*addons = VectorToString(clientAddons).c_str();
