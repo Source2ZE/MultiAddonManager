@@ -112,22 +112,25 @@ ISteamUGC *GetSteamUGC()
 		return SteamUGC();
 }
 
-typedef bool (FASTCALL *SendNetMessage_t)(CServerSideClient *, CNetMessage*, NetChannelBufType_t);
+typedef bool (FASTCALL *SendNetMessage_t)(CServerSideClientBase *, CNetMessage*, NetChannelBufType_t);
 typedef void (FASTCALL *HostStateRequest_t)(CHostStateMgr*, CHostStateRequest*);
 typedef void (FASTCALL *ReplyConnection_t)(INetworkGameServer *, CServerSideClient *);
 typedef uint64 (FASTCALL *ScriptGetAddon_t)();
 
-bool FASTCALL Hook_SendNetMessage(CServerSideClient *pClient, CNetMessage *pData, NetChannelBufType_t bufType);
+bool FASTCALL Hook_SendNetMessage_ServerSideClient(CServerSideClientBase *pClient, CNetMessage *pData, NetChannelBufType_t bufType);
+bool FASTCALL Hook_SendNetMessage_HLTVClient(CServerSideClientBase *pClient, CNetMessage *pData, NetChannelBufType_t bufType);
 void FASTCALL Hook_SetPendingHostStateRequest(CHostStateMgr*, CHostStateRequest*);
 void FASTCALL Hook_ReplyConnection(INetworkGameServer *, CServerSideClient *);
 uint64 FASTCALL Hook_ScriptGetAddon();
 
-SendNetMessage_t g_pfnSendNetMessage = nullptr;
+SendNetMessage_t g_pfnSendNetMessage_ServerSideClient = nullptr;
+SendNetMessage_t g_pfnSendNetMessage_HLTVClient = nullptr;
 HostStateRequest_t g_pfnSetPendingHostStateRequest = nullptr;
 ReplyConnection_t g_pfnReplyConnection = nullptr;
 ScriptGetAddon_t g_pfnScriptGetAddon = nullptr;
 
-funchook_t *g_pSendNetMessageHook = nullptr;
+funchook_t *g_pSendNetMessageHook_ServerSideClient = nullptr;
+funchook_t *g_pSendNetMessageHook_HLTVClient = nullptr;
 funchook_t *g_pSetPendingHostStateRequest = nullptr;
 funchook_t *g_pReplyConnectionHook = nullptr;
 funchook_t *g_pScriptGetAddonHook = nullptr;
@@ -145,6 +148,7 @@ SH_DECL_HOOK3_void(IServerGameDLL, GameFrame, SH_NOATTRIB, 0, bool, bool, bool);
 SH_DECL_HOOK8_void(IGameEventSystem, PostEventAbstract, SH_NOATTRIB, 0, CSplitScreenSlot, bool, int, const uint64 *,
 	INetworkMessageInternal *, const CNetMessage *, unsigned long, NetChannelBufType_t);
 SH_DECL_HOOK2(IGameEventManager2, LoadEventsFromFile, SH_NOATTRIB, 0, int, const char *, bool);
+SH_DECL_HOOK3(IServerGameClients, CanHLTVClientConnect, SH_NOATTRIB, 0, bool, int, const CSteamID &, int *);
 
 // Signatures
 
@@ -269,11 +273,18 @@ bool MultiAddonManager::Load(PluginId id, ISmmAPI *ismm, char *error, size_t max
 
 	// We're using funchook even though it's a virtual function because it can be called on a different thread and SourceHook isn't thread-safe
 	void **pServerSideClientVTable = (void **)engineModule.FindVirtualTable("CServerSideClient");
-	g_pfnSendNetMessage = (SendNetMessage_t)pServerSideClientVTable[g_iSendNetMessageOffset];
+	g_pfnSendNetMessage_ServerSideClient = (SendNetMessage_t)pServerSideClientVTable[g_iSendNetMessageOffset];
 
-	g_pSendNetMessageHook = funchook_create();
-	funchook_prepare(g_pSendNetMessageHook, (void**)&g_pfnSendNetMessage, (void*)Hook_SendNetMessage);
-	funchook_install(g_pSendNetMessageHook, 0);
+	g_pSendNetMessageHook_ServerSideClient = funchook_create();
+	funchook_prepare(g_pSendNetMessageHook_ServerSideClient, (void**)&g_pfnSendNetMessage_ServerSideClient, (void*)Hook_SendNetMessage_ServerSideClient);
+	funchook_install(g_pSendNetMessageHook_ServerSideClient, 0);
+
+	void **pHLTVClientVTable = (void **)engineModule.FindVirtualTable("CHLTVClient");
+	g_pfnSendNetMessage_HLTVClient = (SendNetMessage_t)pHLTVClientVTable[g_iSendNetMessageOffset];
+
+	g_pSendNetMessageHook_HLTVClient = funchook_create();
+	funchook_prepare(g_pSendNetMessageHook_HLTVClient, (void **)&g_pfnSendNetMessage_HLTVClient, (void *)Hook_SendNetMessage_HLTVClient);
+	funchook_install(g_pSendNetMessageHook_HLTVClient, 0);
 
 	g_pfnReplyConnection = (ReplyConnection_t)engineModule.FindSignature(g_ReplyConnection_Sig, sizeof(g_ReplyConnection_Sig) - 1, sig_error);
 
@@ -314,6 +325,7 @@ bool MultiAddonManager::Load(PluginId id, ISmmAPI *ismm, char *error, size_t max
 	SH_ADD_HOOK(IServerGameClients, ClientConnect, g_pSource2GameClients, SH_MEMBER(this, &MultiAddonManager::Hook_ClientConnect), false);
 	SH_ADD_HOOK(IServerGameClients, ClientDisconnect, g_pSource2GameClients, SH_MEMBER(this, &MultiAddonManager::Hook_ClientDisconnect), true);
 	SH_ADD_HOOK(IServerGameClients, ClientActive, g_pSource2GameClients, SH_MEMBER(this, &MultiAddonManager::Hook_ClientActive), true);
+	SH_ADD_HOOK(IServerGameClients, CanHLTVClientConnect, g_pSource2GameClients, SH_MEMBER(this, &MultiAddonManager::Hook_CanHLTVClientConnect), false);
 	SH_ADD_HOOK(IServerGameDLL, GameFrame, g_pSource2Server, SH_MEMBER(this, &MultiAddonManager::Hook_GameFrame), true);
 	SH_ADD_HOOK(IGameEventSystem, PostEventAbstract, g_pGameEventSystem, SH_MEMBER(this, &MultiAddonManager::Hook_PostEvent), false);
 
@@ -352,6 +364,7 @@ bool MultiAddonManager::Unload(char *error, size_t maxlen)
 	SH_REMOVE_HOOK(IServerGameClients, ClientConnect, g_pSource2GameClients, SH_MEMBER(this, &MultiAddonManager::Hook_ClientConnect), false);
 	SH_REMOVE_HOOK(IServerGameClients, ClientDisconnect, g_pSource2GameClients, SH_MEMBER(this, &MultiAddonManager::Hook_ClientDisconnect), true);
 	SH_REMOVE_HOOK(IServerGameClients, ClientActive, g_pSource2GameClients, SH_MEMBER(this, &MultiAddonManager::Hook_ClientActive), true);
+	SH_REMOVE_HOOK(IServerGameClients, CanHLTVClientConnect, g_pSource2GameClients, SH_MEMBER(this, &MultiAddonManager::Hook_CanHLTVClientConnect), false);
 	SH_REMOVE_HOOK(IServerGameDLL, GameFrame, g_pSource2Server, SH_MEMBER(this, &MultiAddonManager::Hook_GameFrame), true);
 	SH_REMOVE_HOOK(IGameEventSystem, PostEventAbstract, g_pGameEventSystem, SH_MEMBER(this, &MultiAddonManager::Hook_PostEvent), false);
 	SH_REMOVE_HOOK_ID(g_iLoadEventsFromFileHookId);
@@ -362,10 +375,16 @@ bool MultiAddonManager::Unload(char *error, size_t maxlen)
 		funchook_destroy(g_pSetPendingHostStateRequest);
 	}
 
-	if (g_pSendNetMessageHook)
+	if (g_pSendNetMessageHook_ServerSideClient)
 	{
-		funchook_uninstall(g_pSendNetMessageHook, 0);
-		funchook_destroy(g_pSendNetMessageHook);
+		funchook_uninstall(g_pSendNetMessageHook_ServerSideClient, 0);
+		funchook_destroy(g_pSendNetMessageHook_ServerSideClient);
+	}
+
+	if (g_pSendNetMessageHook_HLTVClient)
+	{
+		funchook_uninstall(g_pSendNetMessageHook_HLTVClient, 0);
+		funchook_destroy(g_pSendNetMessageHook_HLTVClient);
 	}
 
 	if (g_pReplyConnectionHook)
@@ -928,7 +947,7 @@ void MultiAddonManager::Hook_StartupServer(const GameSessionConfiguration_t &con
 	RefreshAddons();
 }
 
-bool FASTCALL Hook_SendNetMessage(CServerSideClient *pClient, CNetMessage *pData, NetChannelBufType_t bufType)
+bool FASTCALL Hook_SendNetMessage(CServerSideClientBase *pClient, CNetMessage *pData, NetChannelBufType_t bufType, SendNetMessage_t pOriginalFunc)
 {
 	NetMessageInfo_t *info = pData->GetNetMessage()->GetNetMessageInfo();
 	
@@ -939,7 +958,7 @@ bool FASTCALL Hook_SendNetMessage(CServerSideClient *pClient, CNetMessage *pData
 	clientInfo.lastActiveTime = Plat_FloatTime();
 
 	if (info->m_MessageId != net_SignonState || !g_pEngineServer->IsDedicatedServer())
-		return g_pfnSendNetMessage(pClient, pData, bufType);
+		return pOriginalFunc(pClient, pData, bufType);
 
 	auto pMsg = pData->ToPB<CNETMsg_SignonState>();
 
@@ -966,7 +985,7 @@ bool FASTCALL Hook_SendNetMessage(CServerSideClient *pClient, CNetMessage *pData
 			clientInfo.currentPendingAddon = pMsg->addons();
 		}
 		
-		return g_pfnSendNetMessage(pClient, pData, bufType);
+		return pOriginalFunc(pClient, pData, bufType);
 	}
 	FOR_EACH_VEC(clientInfo.downloadedAddons, i)
 	{
@@ -976,7 +995,7 @@ bool FASTCALL Hook_SendNetMessage(CServerSideClient *pClient, CNetMessage *pData
 	// Check if client has downloaded everything.
 	if (addons.Count() == 0)
 	{
-		return g_pfnSendNetMessage(pClient, pData, bufType);
+		return pOriginalFunc(pClient, pData, bufType);
 	}
 
 	if (mm_addon_debug.Get())
@@ -987,7 +1006,17 @@ bool FASTCALL Hook_SendNetMessage(CServerSideClient *pClient, CNetMessage *pData
 	pMsg->set_addons(addons.Head().c_str());
 	pMsg->set_signon_state(SIGNONSTATE_CHANGELEVEL);
 
-	return g_pfnSendNetMessage(pClient, pData, bufType);
+	return pOriginalFunc(pClient, pData, bufType);
+}
+
+bool FASTCALL Hook_SendNetMessage_ServerSideClient(CServerSideClientBase *pClient, CNetMessage *pData, NetChannelBufType_t bufType)
+{
+	return Hook_SendNetMessage(pClient, pData, bufType, g_pfnSendNetMessage_ServerSideClient);
+}
+
+bool FASTCALL Hook_SendNetMessage_HLTVClient(CServerSideClientBase *pClient, CNetMessage *pData, NetChannelBufType_t bufType)
+{
+	return Hook_SendNetMessage(pClient, pData, bufType, g_pfnSendNetMessage_HLTVClient);
 }
 
 // pMgrDoNotUse is named as such because the variable is optimized out in Windows builds and will not be passed to the function.
@@ -1049,13 +1078,13 @@ void FASTCALL Hook_SetPendingHostStateRequest(CHostStateMgr* pMgrDoNotUse, CHost
 	g_pfnSetPendingHostStateRequest(pMgrDoNotUse, pRequest);
 }
 
-bool MultiAddonManager::Hook_ClientConnect( CPlayerSlot slot, const char *pszName, uint64 steamID64, const char *pszNetworkID, bool unk1, CBufferString *pRejectReason )
+void MultiAddonManager::CheckClientAddons(uint64 steamID64)
 {
 	CUtlVector<std::string> addons;
 	GetClientAddons(addons, steamID64);
 	// We don't have an extra addon set so do nothing here, also don't do anything if we're a listenserver
 	if (addons.Count() == 0 || !g_pEngineServer->IsDedicatedServer())
-		RETURN_META_VALUE(MRES_IGNORED, true);
+		return;
 	ClientAddonInfo_t &clientInfo = g_ClientAddons[steamID64];
 
 	if (!clientInfo.currentPendingAddon.empty())
@@ -1078,6 +1107,18 @@ bool MultiAddonManager::Hook_ClientConnect( CPlayerSlot slot, const char *pszNam
 		clientInfo.currentPendingAddon.clear();
 	}
 	g_ClientAddons[steamID64].lastActiveTime = Plat_FloatTime();
+	return;
+}
+
+bool MultiAddonManager::Hook_ClientConnect( CPlayerSlot slot, const char *pszName, uint64 steamID64, const char *pszNetworkID, bool unk1, CBufferString *pRejectReason )
+{
+	CheckClientAddons(steamID64);
+	RETURN_META_VALUE(MRES_IGNORED, true);
+}
+
+bool MultiAddonManager::Hook_CanHLTVClientConnect(int index, const CSteamID &steamID, int *pRejectReason)
+{
+	CheckClientAddons(steamID.ConvertToUint64());
 	RETURN_META_VALUE(MRES_IGNORED, true);
 }
 

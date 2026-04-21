@@ -53,6 +53,7 @@ public: //hooks
 	void Hook_PostEvent(CSplitScreenSlot nSlot, bool bLocalOnly, int nClientCount, const uint64 *clients,
 		INetworkMessageInternal *pEvent, const CNetMessage *pData, unsigned long nSize, NetChannelBufType_t bufType);
 	int Hook_LoadEventsFromFile(const char *filename, bool bSearchAll);
+	bool Hook_CanHLTVClientConnect(int index, const CSteamID &steamID, int *pRejectReason);
 
 	void BuildAddonPath(const char *pszAddon, char *buf, size_t len, bool bLegacy);
 	bool MountAddon(const char *pszAddon, bool bAddToTail);
@@ -74,6 +75,7 @@ public: //hooks
 	void RemoveClientAddon(const char *pszAddon, uint64 steamID64 = 0);
 	void ClearClientAddons(uint64 steamID64 = 0);
 	void GetClientAddons(CUtlVector<std::string> &addons, uint64 steamID64 = 0);
+	void CheckClientAddons(uint64 steamID64);
 
 public:
 	const char *GetAuthor() override		{ return "xen"; }
