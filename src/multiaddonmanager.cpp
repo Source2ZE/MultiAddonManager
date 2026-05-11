@@ -45,6 +45,7 @@ CConVar<bool> mm_cache_clients_with_addons("mm_cache_clients_with_addons", FCVAR
 CConVar<float> mm_cache_clients_duration("mm_cache_clients_duration", FCVAR_NONE, "How long to cache clients' downloaded addons list in seconds, pass 0 for forever.", 0.0f);
 CConVar<float> mm_extra_addons_timeout("mm_extra_addons_timeout", FCVAR_NONE, "How long until clients are timed out in between connects for extra addons in seconds, requires mm_extra_addons to be used", 10.f);
 CConVar<float> mm_addons_hard_timeout("mm_addons_hard_timeout", FCVAR_NONE, "How long a client may sit on the Workshop download popup before being dropped; 0 disables", 10.f);
+CConVar<bool> mm_resend_client_addons_on_update("mm_resend_client_addons_on_update", FCVAR_NONE, "Whether to resend required client addon prompts after the server finishes downloading/updating an addon", false);
 
 CConVar<bool> mm_addon_debug("mm_addon_debug", FCVAR_NONE, "Whether to print some extra debug information", false);
 
@@ -137,6 +138,8 @@ funchook_t *g_pReplyConnectionHook = nullptr;
 funchook_t *g_pScriptGetAddonHook = nullptr;
 
 int g_iLoadEventsFromFileHookId = -1;
+
+static void ResendClientAddonAfterServerUpdate(PublishedFileId_t addon);
 
 class GameSessionConfiguration_t { };
 
@@ -723,6 +726,9 @@ void MultiAddonManager::OnAddonDownloaded(DownloadItemResult_t *pResult)
 	if (!m_DownloadQueue.Check(pResult->m_nPublishedFileId))
 		return;
 
+	if (pResult->m_eResult == k_EResultOK && mm_resend_client_addons_on_update.Get())
+		ResendClientAddonAfterServerUpdate(pResult->m_nPublishedFileId);
+
 	m_DownloadQueue.RemoveAtHead();
 	
 	bool bFound = m_ImportantDownloads.FindAndRemove(pResult->m_nPublishedFileId);
@@ -802,6 +808,74 @@ CNetMessagePB<CNETMsg_SignonState> *GetAddonSignonStateMessage(const char *pszAd
 	}
 
 	return pMsg;
+}
+
+static void RemoveDownloadedAddonFromCache(ClientAddonInfo_t &clientInfo, const char *pszAddon)
+{
+	while (clientInfo.downloadedAddons.Find(pszAddon) != -1)
+		clientInfo.downloadedAddons.FindAndRemove(pszAddon);
+}
+
+static void ResendClientAddonAfterServerUpdate(PublishedFileId_t addon)
+{
+	if (!g_pEngineServer->IsDedicatedServer())
+		return;
+
+	char szAddon[32];
+	V_snprintf(szAddon, sizeof(szAddon), "%llu", (unsigned long long)addon);
+
+	int resendCount = 0;
+
+	for (auto &entry : g_ClientAddons)
+		RemoveDownloadedAddonFromCache(entry.second, szAddon);
+
+	CUtlVector<CServerSideClient *> *clients = GetClientList();
+	if (!clients)
+		return;
+
+	CNetMessagePB<CNETMsg_SignonState> *pMsg = GetAddonSignonStateMessage(szAddon);
+	if (!pMsg)
+	{
+		Panic("%s: Failed to create signon state message for %s\n", __func__, szAddon);
+		return;
+	}
+
+	CUtlVector<CServerSideClient *> &clientList = *clients;
+	FOR_EACH_VEC(clientList, i)
+	{
+		CServerSideClient *pClient = clientList[i];
+		if (!pClient)
+			continue;
+
+		uint64 steamID64 = pClient->GetClientSteamID().ConvertToUint64();
+		if (!steamID64)
+			continue;
+
+		ClientAddonInfo_t &clientInfo = g_ClientAddons[steamID64];
+		RemoveDownloadedAddonFromCache(clientInfo, szAddon);
+
+		CUtlVector<std::string> requiredAddons;
+		g_MultiAddonManager.GetClientAddons(requiredAddons, steamID64);
+		if (requiredAddons.Find(szAddon) == -1)
+			continue;
+
+		// Client is already loading or already has another addon prompt in progress.
+		if (pClient->GetSignonState() == SIGNONSTATE_CHANGELEVEL || !clientInfo.currentPendingAddon.empty())
+			continue;
+
+		clientInfo.currentPendingAddon = szAddon;
+		clientInfo.firstPopupHardTimeoutActive = true;
+		clientInfo.firstPopupStartTime = Plat_FloatTime();
+		clientInfo.lastActiveTime = Plat_FloatTime();
+
+		pClient->GetNetChannel()->SendNetMessage(pMsg, BUF_RELIABLE);
+		resendCount++;
+	}
+
+	delete pMsg;
+
+	if (mm_addon_debug.Get())
+		Message("%s: Resent addon %s to %d connected clients after server-side download/update\n", __func__, szAddon, resendCount);
 }
 
 bool MultiAddonManager::HasUGCConnection()
