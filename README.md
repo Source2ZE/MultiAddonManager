@@ -8,6 +8,10 @@ A MetaMod plugin that allows you to use multiple workshop addons at once and hav
 - `mm_client_extra_addons <ids>` The workshop IDs of extra client-side only addons that will be loaded by all clients, separated by commas. These addons are not loaded or downloaded by the server.
   Changes will only apply to future clients.
 
+## NEW
+- `mm_addons_hard_timeout <seconds> (default 30)` How long a client may sit on the Workshop download popup before being dropped; 0 disables
+
+--
 - `mm_extra_addons_timeout <seconds> (default 10)` How long until clients are timed out in between connects for extra addons, timed out clients will reconnect for their current pending download.
 - `mm_print_searchpaths` Print all the search paths currently mounted by the server.
 - `mm_addon_mount_download <0/1> (default 0)` If enabled, the plugin will initiate an addon download every time even if it's already installed, this will guarantee that updates are applied immediately.

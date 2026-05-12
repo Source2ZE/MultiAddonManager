@@ -1,18 +1,20 @@
 name: CI
 
 on:
+  workflow_dispatch:
   push:
-    tags:
-      - '*'
     branches:
       - main
     paths-ignore:
-    - LICENSE
-    - README.md
+      - LICENSE
+      - README.md
   pull_request:
     paths-ignore:
-    - LICENSE
-    - README.md
+      - LICENSE
+      - README.md
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -42,7 +44,7 @@ jobs:
           ref: master
           path: mmsource-2.0
           submodules: recursive
-          
+
       - name: Checkout HL2SDK
         uses: actions/checkout@v4
         with:
@@ -80,9 +82,9 @@ jobs:
 
   release:
     name: Release
-    if: startsWith(github.ref, 'refs/tags/')
     needs: build
     runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request'
 
     steps:
       - name: Download artifacts
@@ -90,23 +92,28 @@ jobs:
 
       - name: Package
         run: |
-          version=`echo $GITHUB_REF | sed "s/refs\/tags\///"`
           ls -Rall
+
           if [ -d "./Linux/" ]; then
             cd ./Linux/
-            tar -czf ../${{ github.event.repository.name }}-${version}-linux.tar.gz *
+            tar -czf ../MultiAddonManager-linux.tar.gz *
             cd -
           fi
+
           if [ -d "./Windows/" ]; then
             cd ./Windows/
-            zip -r ../${{ github.event.repository.name }}-${version}-windows.zip *
+            zip -r ../MultiAddonManager-windows.zip *
             cd -
           fi
 
       - name: Release
-        uses: svenstaro/upload-release-action@v2
+        uses: softprops/action-gh-release@v2
         with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: ${{ github.event.repository.name }}-*
-          tag: ${{ github.ref }}
-          file_glob: true
+          tag_name: build-${{ github.run_number }}
+          name: build-${{ github.run_number }}
+          files: |
+            MultiAddonManager-linux.tar.gz
+            MultiAddonManager-windows.zip
+          generate_release_notes: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
