@@ -56,6 +56,7 @@ for sdk_target in MMSPlugin.sdk_targets:
   protoc_builder = builder.tools.Protoc(protoc = sdk_target.protoc, sources = [
     os.path.join(sdk['path'], 'common', 'network_connection.proto'),
     os.path.join(sdk['path'], 'common', 'networkbasetypes.proto'),
+    os.path.join(sdk['path'], 'common', 'valveextensions.proto'),
     os.path.join(sdk['path'], 'game', 'shared', 'gameevents.proto')
   ])
   protoc_builder.protoc.includes += [
