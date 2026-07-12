@@ -966,6 +966,8 @@ void MultiAddonManager::Hook_StartupServer(const GameSessionConfiguration_t &con
 	gpGlobals = g_pEngineServer->GetServerGlobals();
 	g_pNetworkGameServer = g_pNetworkServerService->GetIGameServer();
 
+	m_TimedOutClients.clear();
+
 	// Remove empty paths added when there are 2+ addons, they screw up file writes
 	g_pFullFileSystem->RemoveSearchPath("", "GAME");
 	g_pFullFileSystem->RemoveSearchPath("", "DEFAULT_WRITE_PATH");
@@ -1177,6 +1179,24 @@ void MultiAddonManager::Hook_GameFrame(bool simulating, bool bFirstTick, bool bL
 		s_flTime = Plat_FloatTime();
 		PrintDownloadProgress();
 	}
+
+	if (!m_TimedOutClients.size())
+		return;
+
+	auto pClients = GetClientList();
+
+	FOR_EACH_VEC(*pClients, i)
+	{
+		auto pClient = (*pClients)[i];
+
+		uint64 steamID64 = pClient->GetClientSteamID().ConvertToUint64();
+
+		if (m_TimedOutClients.erase(steamID64))
+		{
+			pClient->Disconnect(NETWORK_DISCONNECT_TIMEDOUT, "Required Workshop addon download was not accepted in time");
+			g_ClientAddons[steamID64].connectedState = CLIENTCONN_NONE;
+		}
+	}
 }
 
 void MultiAddonManager::Hook_PostEvent(CSplitScreenSlot nSlot, bool bLocalOnly, int nClientCount, const uint64 *clients,
@@ -1252,8 +1272,8 @@ void FASTCALL Hook_ReplyConnection(INetworkGameServer *server, CServerSideClient
 		clientInfo.connectedState == CLIENTCONN_CONNECTING && 
 		Plat_FloatTime() - clientInfo.connectionStartTime > mm_addon_connection_timeout.Get())
 	{
-		clientInfo.connectedState = CLIENTCONN_NONE;
-		client->Disconnect(NETWORK_DISCONNECT_KICKED, "Required Workshop addon download was not accepted in time");
+		// Can't kick right now as this will crash on windows, so defer to the next frame
+		g_MultiAddonManager.AddTimedOutClient(steamID64);
 		return;
 	}
 

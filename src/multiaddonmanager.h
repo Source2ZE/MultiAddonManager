@@ -76,6 +76,7 @@ public: //hooks
 	void ClearClientAddons(uint64 steamID64 = 0);
 	void GetClientAddons(CUtlVector<std::string> &addons, uint64 steamID64 = 0);
 	void CheckClientAddons(uint64 steamID64);
+	void AddTimedOutClient(uint64 steamID64) { m_TimedOutClients.insert(steamID64); }
 
 public:
 	const char *GetAuthor() override		{ return "xen"; }
@@ -102,6 +103,8 @@ private:
 	STEAM_GAMESERVER_CALLBACK_MANUAL(MultiAddonManager, OnAddonDownloaded, DownloadItemResult_t, m_CallbackDownloadItemResult);
 	// Used when reloading current map
 	std::string m_sCurrentWorkshopMap;
+
+	std::set<uint64> m_TimedOutClients;
 };
 
 extern MultiAddonManager g_MultiAddonManager;
