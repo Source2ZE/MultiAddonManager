@@ -41,3 +41,4 @@ IMultiAddonManager *pInterface = (IMultiAddonManager*)g_SMAPI->MetaFactory(MULTI
 - Download the [latest release package](https://github.com/Source2ZE/MultiAddonManager/releases/latest) for your OS
 - Extract the package contents into `game/csgo` on your server
 - Edit the config file at `game/csgo/cfg/multiaddonmanager/multiaddonmanager.cfg`
+- **Recommended:** Add `-disable_workshop_command_filtering` to your server startup parameters, otherwise plugin configs won't execute if an addon or a workshop map is loaded.
