@@ -55,6 +55,7 @@ public: //hooks
 	int Hook_LoadEventsFromFile(const char *filename, bool bSearchAll);
 	bool Hook_CanHLTVClientConnect(int index, const CSteamID &steamID, int *pRejectReason);
 
+	void ParseCfg();
 	void BuildAddonPath(const char *pszAddon, char *buf, size_t len, bool bLegacy);
 	bool MountAddon(const char *pszAddon, bool bAddToTail);
 	bool UnmountAddon(const char *pszAddon);

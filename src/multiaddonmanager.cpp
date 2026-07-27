@@ -35,6 +35,7 @@
 #include "steam/steam_gameserver.h"
 #include <string>
 #include <sstream>
+#include <fstream>
 #include "iserver.h"
 
 #include "tier0/memdbgon.h"
@@ -377,7 +378,7 @@ bool MultiAddonManager::Load(PluginId id, ISmmAPI *ismm, char *error, size_t max
 
 	META_CONVAR_REGISTER(FCVAR_RELEASE);
 
-	g_pEngineServer->ServerCommand("exec multiaddonmanager/multiaddonmanager");
+	ParseCfg();
 
 	Message("Plugin loaded successfully!\n");
 
@@ -445,6 +446,32 @@ void *MultiAddonManager::OnMetamodQuery(const char *iface, int *ret)
 		*ret = META_IFACE_OK;
 
 	return static_cast<IMultiAddonManager*>(&g_MultiAddonManager);
+}
+
+void MultiAddonManager::ParseCfg()
+{
+	char szPath[MAX_PATH];
+	V_snprintf(szPath, sizeof(szPath), "%s/csgo/cfg/multiaddonmanager/multiaddonmanager.cfg", Plat_GetGameDirectory());
+	std::ifstream cfgFile(szPath);
+
+	if (!cfgFile.is_open())
+	{
+		Message("Unable to open & execute custom cfg file \"multiaddonmanager/multiaddonmanager\"\n");
+		return;
+	}
+
+	Message("Executing custom cfg file \"multiaddonmanager/multiaddonmanager\"\n");
+
+	std::string strCommand;
+
+	while (std::getline(cfgFile, strCommand))
+	{
+		if (!strCommand.empty() && strCommand.back() == '\r')
+			strCommand.pop_back();
+
+		if (!strCommand.empty())
+			g_pEngineServer->ServerCommand(strCommand.c_str());
+	}
 }
 
 void MultiAddonManager::BuildAddonPath(const char *pszAddon, char *buf, size_t len, bool bLegacy = false)
