@@ -21,7 +21,7 @@
 
 #include <ISmmPlugin.h>
 #include <igameevents.h>
-#include <sh_vector.h>
+#include "khook.hpp"
 #include "utlqueue.h"
 #include "utlvector.h"
 #include "networksystem/inetworkserializer.h"
@@ -37,23 +37,38 @@
 #define GAMEBIN "/csgo/bin/linuxsteamrt64/"
 #endif
 
+class IGameEventSystem;
+class INetworkGameServer;
+class CNetMessage;
+class CHostStateMgr;
+class CServerSideClientBase;
+class CServerSideClient;
+struct CHostStateRequest;
+
 class MultiAddonManager : public ISmmPlugin, public IMetamodListener, public IMultiAddonManager
 {
 public:
+	MultiAddonManager();
+
 	bool Load(PluginId id, ISmmAPI *ismm, char *error, size_t maxlen, bool late);
 	bool Unload(char *error, size_t maxlen);
 	void *OnMetamodQuery(const char *iface, int *ret);
 public: //hooks
-	void Hook_GameServerSteamAPIActivated();
-	void Hook_StartupServer(const GameSessionConfiguration_t &config, ISource2WorldSession *, const char *);
-	bool Hook_ClientConnect(CPlayerSlot slot, const char *pszName, uint64 steamID64, const char *pszNetworkID, bool unk1, CBufferString *pRejectReason);
-	void Hook_ClientDisconnect(CPlayerSlot slot, ENetworkDisconnectionReason reason, const char *pszName, uint64 steamID64, const char *pszNetworkID);
-	void Hook_ClientActive(CPlayerSlot slot, bool bLoadGame, const char *pszName, uint64 steamID64);
-	void Hook_GameFrame(bool simulating, bool bFirstTick, bool bLastTick);
-	void Hook_PostEvent(CSplitScreenSlot nSlot, bool bLocalOnly, int nClientCount, const uint64 *clients,
+	KHook::Return<void> Hook_GameServerSteamAPIActivated(IServerGameDLL *pThis);
+	KHook::Return<void> Hook_StartupServer(INetworkServerService *pThis, const GameSessionConfiguration_t &config, ISource2WorldSession *, const char *);
+	KHook::Return<bool> Hook_ClientConnect(IServerGameClients *pThis, CPlayerSlot slot, const char *pszName, uint64 steamID64, const char *pszNetworkID, bool unk1, CBufferString *pRejectReason);
+	KHook::Return<void> Hook_ClientDisconnect(IServerGameClients *pThis, CPlayerSlot slot, ENetworkDisconnectionReason reason, const char *pszName, uint64 steamID64, const char *pszNetworkID);
+	KHook::Return<void> Hook_ClientActive(IServerGameClients *pThis, CPlayerSlot slot, bool bLoadGame, const char *pszName, uint64 steamID64);
+	KHook::Return<void> Hook_GameFrame(IServerGameDLL *pThis, bool simulating, bool bFirstTick, bool bLastTick);
+	KHook::Return<void> Hook_PostEvent(IGameEventSystem *pThis, CSplitScreenSlot nSlot, bool bLocalOnly, int nClientCount, const uint64 *clients,
 		INetworkMessageInternal *pEvent, const CNetMessage *pData, unsigned long nSize, NetChannelBufType_t bufType);
-	int Hook_LoadEventsFromFile(const char *filename, bool bSearchAll);
-	bool Hook_CanHLTVClientConnect(int index, const CSteamID &steamID, int *pRejectReason);
+	KHook::Return<int> Hook_LoadEventsFromFile(IGameEventManager2 *pThis, const char *filename, bool bSearchAll);
+	KHook::Return<bool> Hook_CanHLTVClientConnect(IServerGameClients *pThis, int index, const CSteamID &steamID, int *pRejectReason);
+	KHook::Return<bool> Hook_SendNetMessage_ServerSideClient(CServerSideClientBase *pClient, const CNetMessage *pData, NetChannelBufType_t bufType);
+	KHook::Return<bool> Hook_SendNetMessage_HLTVClient(CServerSideClientBase *pClient, const CNetMessage *pData, NetChannelBufType_t bufType);
+	KHook::Return<void> Hook_SetPendingHostStateRequest(CHostStateMgr *pMgrDoNotUse, CHostStateRequest *pRequest);
+	KHook::Return<void> Hook_ReplyConnection(INetworkGameServer *pThis, CServerSideClient *pClient);
+	KHook::Return<uint64> Hook_ScriptGetAddon();
 
 	void ParseCfg();
 	void BuildAddonPath(const char *pszAddon, char *buf, size_t len, bool bLegacy);
@@ -98,6 +113,21 @@ public:
 	CUtlVector<std::string> m_GlobalClientAddons;
 
 private:
+	KHook::Virtual<IServerGameDLL, void, bool, bool, bool> m_hookGameFrame;
+	KHook::Virtual<IServerGameDLL, void> m_hookGameServerSteamAPIActivated;
+	KHook::Virtual<INetworkServerService, void, const GameSessionConfiguration_t &, ISource2WorldSession *, const char *> m_hookStartupServer;
+	KHook::Virtual<IServerGameClients, bool, CPlayerSlot, const char *, uint64, const char *, bool, CBufferString *> m_hookClientConnect;
+	KHook::Virtual<IServerGameClients, bool, int, const CSteamID &, int *> m_hookCanHLTVClientConnect;
+	KHook::Virtual<IServerGameClients, void, CPlayerSlot, ENetworkDisconnectionReason, const char *, uint64, const char *> m_hookClientDisconnect;
+	KHook::Virtual<IServerGameClients, void, CPlayerSlot, bool, const char *, uint64> m_hookClientActive;
+	KHook::Virtual<IGameEventSystem, void, CSplitScreenSlot, bool, int, const uint64 *, INetworkMessageInternal *, const CNetMessage *, unsigned long, NetChannelBufType_t> m_hookPostEventAbstract;
+	KHook::Virtual<IGameEventManager2, int, const char *, bool> m_hookLoadEventsFromFile;
+	KHook::Virtual<CServerSideClientBase, bool, const CNetMessage *, NetChannelBufType_t> m_hookSendNetMessage_ServerSideClient;
+	KHook::Virtual<CServerSideClientBase, bool, const CNetMessage *, NetChannelBufType_t> m_hookSendNetMessage_HLTVClient;
+	KHook::Function<void, CHostStateMgr *, CHostStateRequest *> m_hookSetPendingHostStateRequest;
+	KHook::Function<void, INetworkGameServer *, CServerSideClient *> m_hookReplyConnection;
+	KHook::Function<uint64> m_hookScriptGetAddon;
+
 	CUtlVector<PublishedFileId_t> m_ImportantDownloads; // Important addon downloads that will trigger a map reload when finished
 	CUtlQueue<PublishedFileId_t> m_DownloadQueue; // Queue of all addon downloads to print progress
 
