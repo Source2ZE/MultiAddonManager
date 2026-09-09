@@ -21,6 +21,7 @@
 #include "dbg.h"
 #include "interface.h"
 #include "strtools.h"
+#include "khook.hpp"
 #include "plat.h"
 
 #include <string>
@@ -30,13 +31,6 @@
 #ifdef _WIN32
 #include <Psapi.h>
 #endif
-
-enum SigError
-{
-	SIG_OK,
-	SIG_NOT_FOUND,
-	SIG_FOUND_MULTIPLE,
-};
 
 // equivalent to FindSignature, but allows for multiple signatures to be found and iterated over
 class SignatureIterator
@@ -102,38 +96,9 @@ public:
 #endif
 	}
 
-	void *FindSignature(const byte *pData, size_t iSigLength, int &error)
+	void *LookupSignature(const char *pSignature)
 	{
-		unsigned char *pMemory;
-		void *return_addr = nullptr;
-		error = 0;
-
-		pMemory = (byte *)m_base;
-
-		for (size_t i = 0; i < m_size; i++)
-		{
-			size_t Matches = 0;
-			while (*(pMemory + i + Matches) == pData[Matches] || pData[Matches] == '\x2A')
-			{
-				Matches++;
-				if (Matches == iSigLength)
-				{
-					if (return_addr)
-					{
-						error = SIG_FOUND_MULTIPLE;
-						return return_addr;
-					}
-
-					return_addr = (void *)(pMemory + i);
-					break;
-				}
-			}
-		}
-
-		if (!return_addr)
-			error = SIG_NOT_FOUND;
-
-		return return_addr;
+		return KHook::LookupSignature(m_base, m_size, pSignature);
 	}
 
 	void *FindInterface(const char *name)

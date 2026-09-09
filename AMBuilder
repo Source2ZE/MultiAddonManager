@@ -28,16 +28,10 @@ for sdk_target in MMSPlugin.sdk_targets:
   target_folder = 'Debug' if builder.options.debug else 'Release'
 
   if binary.compiler.target.platform == 'linux':
-    binary.compiler.postlink += [
-      os.path.join(builder.sourcePath, 'vendor', 'funchook', 'lib', target_folder, 'libfunchook.a'),
-      os.path.join(builder.sourcePath, 'vendor', 'funchook', 'lib', target_folder, 'libdistorm.a'),
-    ]
     binary.sources += ['src/utils/plat_unix.cpp']
   elif binary.compiler.target.platform == 'windows':
     binary.compiler.postlink += [
       os.path.join('psapi.lib'),
-      os.path.join(builder.sourcePath, 'vendor', 'funchook', 'lib', target_folder, 'funchook.lib'),
-      os.path.join(builder.sourcePath, 'vendor', 'funchook', 'lib', target_folder, 'distorm.lib'),
       os.path.join(sdk['path'], 'lib', 'public', 'win64', 'steam_api64.lib')
     ]
     binary.sources += ['src/utils/plat_win.cpp']
@@ -50,7 +44,6 @@ for sdk_target in MMSPlugin.sdk_targets:
     os.path.join(builder.sourcePath, 'src', 'cs2_sdk'),
     os.path.join(builder.sourcePath, 'src', 'utils'),
     os.path.join(builder.sourcePath, 'public'),
-    os.path.join(builder.sourcePath, 'vendor', 'funchook', 'include'),
   ]
 
   protoc_builder = builder.tools.Protoc(protoc = sdk_target.protoc, sources = [
