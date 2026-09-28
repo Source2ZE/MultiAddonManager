@@ -60,9 +60,7 @@ public: //hooks
 	KHook::Return<void> Hook_ClientDisconnect(IServerGameClients *pThis, CPlayerSlot slot, ENetworkDisconnectionReason reason, const char *pszName, uint64 steamID64, const char *pszNetworkID);
 	KHook::Return<void> Hook_ClientActive(IServerGameClients *pThis, CPlayerSlot slot, bool bLoadGame, const char *pszName, uint64 steamID64);
 	KHook::Return<void> Hook_GameFrame(IServerGameDLL *pThis, bool simulating, bool bFirstTick, bool bLastTick);
-	KHook::Return<void> Hook_PostEvent(IGameEventSystem *pThis, CSplitScreenSlot nSlot, bool bLocalOnly, int nClientCount, const uint64 *clients,
-		INetworkMessageInternal *pEvent, const CNetMessage *pData, unsigned long nSize, NetChannelBufType_t bufType);
-	KHook::Return<int> Hook_LoadEventsFromFile(IGameEventManager2 *pThis, const char *filename, bool bSearchAll);
+	KHook::Return<bool> Hook_FireEvent(IGameEventManager2 *pThis, IGameEvent *event, bool bDontBroadcast = false);
 	KHook::Return<bool> Hook_CanHLTVClientConnect(IServerGameClients *pThis, int index, const CSteamID &steamID, int *pRejectReason);
 	KHook::Return<bool> Hook_SendNetMessage_ServerSideClient(CServerSideClientBase *pClient, const CNetMessage *pData, NetChannelBufType_t bufType);
 	KHook::Return<bool> Hook_SendNetMessage_HLTVClient(CServerSideClientBase *pClient, const CNetMessage *pData, NetChannelBufType_t bufType);
@@ -120,8 +118,7 @@ private:
 	KHook::Virtual<IServerGameClients, bool, int, const CSteamID &, int *> m_hookCanHLTVClientConnect;
 	KHook::Virtual<IServerGameClients, void, CPlayerSlot, ENetworkDisconnectionReason, const char *, uint64, const char *> m_hookClientDisconnect;
 	KHook::Virtual<IServerGameClients, void, CPlayerSlot, bool, const char *, uint64> m_hookClientActive;
-	KHook::Virtual<IGameEventSystem, void, CSplitScreenSlot, bool, int, const uint64 *, INetworkMessageInternal *, const CNetMessage *, unsigned long, NetChannelBufType_t> m_hookPostEventAbstract;
-	KHook::Virtual<IGameEventManager2, int, const char *, bool> m_hookLoadEventsFromFile;
+	KHook::Virtual<IGameEventManager2, bool, IGameEvent *, bool> m_hookFireEvent;
 	KHook::Virtual<CServerSideClientBase, bool, const CNetMessage *, NetChannelBufType_t> m_hookSendNetMessage_ServerSideClient;
 	KHook::Virtual<CServerSideClientBase, bool, const CNetMessage *, NetChannelBufType_t> m_hookSendNetMessage_HLTVClient;
 	KHook::Function<void, CHostStateMgr *, CHostStateRequest *> m_hookSetPendingHostStateRequest;

@@ -226,7 +226,7 @@ CConVar<CUtlString> mm_client_extra_addons("mm_client_extra_addons", FCVAR_NONE,
 INetworkGameServer *g_pNetworkGameServer = nullptr;
 CGlobalVars *gpGlobals = nullptr;
 IGameEventSystem *g_pGameEventSystem = nullptr;
-IGameEventManager2 *g_pGameEventManager = nullptr;
+
 IGameEventManager2 *g_pGameEventManagerVTable = nullptr;
 CServerSideClientBase *g_pServerSideClientVTable = nullptr;
 CServerSideClientBase *g_pHLTVClientVTable = nullptr;
@@ -242,8 +242,7 @@ MultiAddonManager::MultiAddonManager() :
 	m_hookCanHLTVClientConnect(&IServerGameClients::CanHLTVClientConnect, this, &MultiAddonManager::Hook_CanHLTVClientConnect, nullptr),
 	m_hookClientDisconnect(&IServerGameClients::ClientDisconnect, this, nullptr, &MultiAddonManager::Hook_ClientDisconnect),
 	m_hookClientActive(&IServerGameClients::ClientActive, this, nullptr, &MultiAddonManager::Hook_ClientActive),
-	m_hookPostEventAbstract(&IGameEventSystem::PostEventAbstract, this, &MultiAddonManager::Hook_PostEvent, nullptr),
-	m_hookLoadEventsFromFile(&IGameEventManager2::LoadEventsFromFile, this, &MultiAddonManager::Hook_LoadEventsFromFile, nullptr),
+	m_hookFireEvent(&IGameEventManager2::FireEvent, this, &MultiAddonManager::Hook_FireEvent, nullptr),
 	m_hookSendNetMessage_ServerSideClient(&CServerSideClientBase::SendNetMessage, this, &MultiAddonManager::Hook_SendNetMessage_ServerSideClient, nullptr),
 	m_hookSendNetMessage_HLTVClient(&CServerSideClientBase::SendNetMessage, this, &MultiAddonManager::Hook_SendNetMessage_HLTVClient, nullptr),
 	m_hookSetPendingHostStateRequest(this, &MultiAddonManager::Hook_SetPendingHostStateRequest, nullptr),
@@ -334,8 +333,7 @@ bool MultiAddonManager::Load(PluginId id, ISmmAPI *ismm, char *error, size_t max
 	m_hookGameServerSteamAPIActivated.Add(g_pSource2Server);
 	m_hookGameFrame.Add(g_pSource2Server);
 	m_hookStartupServer.Add(g_pNetworkServerService);
-	m_hookPostEventAbstract.Add(g_pGameEventSystem);
-	m_hookLoadEventsFromFile.AddGlobal((IGameEventManager2*)&g_pGameEventManagerVTable);
+	m_hookFireEvent.AddGlobal((IGameEventManager2*)&g_pGameEventManagerVTable);
 	m_hookSendNetMessage_ServerSideClient.AddGlobal((CServerSideClientBase*)&g_pServerSideClientVTable);
 	m_hookSendNetMessage_HLTVClient.AddGlobal((CServerSideClientBase*)&g_pHLTVClientVTable);
 
@@ -369,8 +367,7 @@ bool MultiAddonManager::Unload(char *error, size_t maxlen)
 	m_hookGameServerSteamAPIActivated.Remove(g_pSource2Server);
 	m_hookGameFrame.Remove(g_pSource2Server);
 	m_hookStartupServer.Remove(g_pNetworkServerService);
-	m_hookPostEventAbstract.Remove(g_pGameEventSystem);
-	m_hookLoadEventsFromFile.RemoveGlobal((IGameEventManager2*)&g_pGameEventManagerVTable);
+	m_hookFireEvent.RemoveGlobal((IGameEventManager2*)&g_pGameEventManagerVTable);
 	m_hookSendNetMessage_ServerSideClient.RemoveGlobal((CServerSideClientBase *)&g_pServerSideClientVTable);
 	m_hookSendNetMessage_HLTVClient.RemoveGlobal((CServerSideClientBase *)&g_pHLTVClientVTable);
 	
@@ -1178,35 +1175,20 @@ KHook::Return<void> MultiAddonManager::Hook_GameFrame(IServerGameDLL *pThis, boo
 	return {KHook::Action::Ignore};
 }
 
-KHook::Return<void> MultiAddonManager::Hook_PostEvent(IGameEventSystem *pThis, CSplitScreenSlot nSlot, bool bLocalOnly, int nClientCount, const uint64 *clients,
-	INetworkMessageInternal *pEvent, const CNetMessage *pData, unsigned long nSize, NetChannelBufType_t bufType)
+KHook::Return<bool> MultiAddonManager::Hook_FireEvent(IGameEventManager2 *pThis, IGameEvent *event, bool bDontBroadcast)
 {
-	NetMessageInfo_t *info = pEvent->GetNetMessageInfo();
+	if (!event)
+		return {KHook::Action::Ignore};
 
-	if (mm_block_disconnect_messages.Get() && info->m_MessageId == GE_Source1LegacyGameEvent)
-	{
-		auto pMsg = pData->ToPB<CMsgSource1LegacyGameEvent>();
+	static int s_iDisconnectId = -1;
 
-		static int sDisconnectId = g_pGameEventManager->LookupEventId("player_disconnect");
+	if (s_iDisconnectId == -1 && !V_strcmp(event->GetName(), "player_disconnect"))
+		s_iDisconnectId = event->GetID();
 
-		if (pMsg->eventid() == sDisconnectId)
-		{
-			IGameEvent *pEvent = g_pGameEventManager->UnserializeEvent(*pMsg);
-
-			// This will prevent "loop shutdown" messages in the chat when clients reconnect
-			// As far as we're aware, there are no other cases where this reason is used
-			if (pEvent->GetInt("reason") == NETWORK_DISCONNECT_LOOPSHUTDOWN)
-				*(uint64*)clients = 0;
-		}
-	}
-
-	return {KHook::Action::Ignore};
-}
-
-KHook::Return<int> MultiAddonManager::Hook_LoadEventsFromFile(IGameEventManager2 *pThis, const char *filename, bool bSearchAll)
-{
-	if (!g_pGameEventManager)
-		g_pGameEventManager = pThis;
+	// This will prevent "loop shutdown" messages in the chat when clients reconnect
+	// As far as we're aware, there are no other cases where this reason is used
+	if (mm_block_disconnect_messages.Get() && event->GetID() == s_iDisconnectId && event->GetInt("reason") == NETWORK_DISCONNECT_LOOPSHUTDOWN)
+		return {KHook::Action::Supersede, false};
 
 	return {KHook::Action::Ignore};
 }
