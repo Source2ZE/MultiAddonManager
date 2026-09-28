@@ -19,7 +19,7 @@ for sdk_target in MMSPlugin.sdk_targets:
   try:
     version = subprocess.check_output(['git', 'describe', '--tags', '--long']).decode('ascii').strip()
   except subprocess.SubprocessError as e:
-    version = "1.3-dev"
+    version = "dev"
     print("git describe failed as there are no tags")
 	
   print(f'Setting version to "{version}"')
@@ -29,6 +29,8 @@ for sdk_target in MMSPlugin.sdk_targets:
 
   if binary.compiler.target.platform == 'linux':
     binary.sources += ['src/utils/plat_unix.cpp']
+    if builder.options.opt == '1':
+      binary.compiler.cxxflags += ['-g0']
   elif binary.compiler.target.platform == 'windows':
     binary.compiler.postlink += [
       os.path.join('psapi.lib'),
