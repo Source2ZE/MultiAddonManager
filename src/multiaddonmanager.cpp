@@ -344,6 +344,7 @@ bool MultiAddonManager::Load(PluginId id, ISmmAPI *ismm, char *error, size_t max
 		if (g_pEngineServer->IsDedicatedServer())
 		{
 			m_CallbackDownloadItemResult.Register(this, &MultiAddonManager::OnAddonDownloaded);
+			m_CallbackSteamServersConnected.Register(this, &MultiAddonManager::OnSteamServersConnected);
 		}
 	}
 
@@ -567,6 +568,16 @@ bool MultiAddonManager::DownloadAddon(const char *pszAddon, bool bImportant, boo
 	if (!GetSteamUGC()->DownloadItem(addon, false))
 	{
 		Panic("%s: Addon download for %lli failed to start, addon ID is invalid or server is not logged on Steam\n", __func__, addon);
+
+		// Most likely the server hasn't logged on to Steam yet, retry once it does (see OnSteamServersConnected)
+		bool bPending = false;
+		for (const auto &pending : m_PendingDownloads)
+			if (pending.addon == addon)
+				bPending = true;
+
+		if (!bPending)
+			m_PendingDownloads.push_back({addon, bImportant, bForce});
+
 		return false;
 	}
 	
@@ -578,6 +589,26 @@ bool MultiAddonManager::DownloadAddon(const char *pszAddon, bool bImportant, boo
 	Message("Addon download started for %lli\n", addon);
 
 	return true;
+}
+
+// Downloads requested before the server logged on to Steam fail to start, so retry them now
+void MultiAddonManager::OnSteamServersConnected(SteamServersConnected_t *pResult)
+{
+	if (m_PendingDownloads.empty())
+		return;
+
+	// Failures get queued again, so work on a copy
+	std::vector<PendingDownload_t> pending;
+	pending.swap(m_PendingDownloads);
+
+	Message("Logged on to Steam, retrying %i pending addon download(s)\n", (int)pending.size());
+
+	for (const auto &download : pending)
+	{
+		char szAddon[32];
+		V_snprintf(szAddon, sizeof(szAddon), "%llu", (unsigned long long)download.addon);
+		DownloadAddon(szAddon, download.bImportant, download.bForce);
+	}
 }
 
 void MultiAddonManager::RefreshAddons(bool bReloadMap)
@@ -623,6 +654,7 @@ KHook::Return<void> MultiAddonManager::Hook_GameServerSteamAPIActivated(IServerG
 	Message("Steam API Activated\n");
 
 	m_CallbackDownloadItemResult.Register(this, &MultiAddonManager::OnAddonDownloaded);
+	m_CallbackSteamServersConnected.Register(this, &MultiAddonManager::OnSteamServersConnected);
 
 	RefreshAddons(true);
 
