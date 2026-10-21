@@ -30,14 +30,15 @@
 #include "engine2/networkgameserverbase.h"
 #include "engine2/serversideclient.h"
 #include "khook.hpp"
-#include "utlqueue.h"
 #include "utlvector.h"
-#include <vector>
+#include <deque>
 #include "networksystem/inetworkserializer.h"
 #include "steam/steam_api_common.h"
 #include "steam/isteamugc.h"
 #include "steam/isteamuser.h"
 #include "imultiaddonmanager.h"
+#include <string>
+#include "tier0_strtools.h"
 
 #ifdef AMBUILD
 #include "version_gen.h"
@@ -52,6 +53,61 @@
 #define ROOTBIN "/bin/linuxsteamrt64/"
 #define GAMEBIN "/csgo/bin/linuxsteamrt64/"
 #endif
+
+class AddonId
+{
+public:
+	AddonId() = default;
+
+	AddonId(const std::string &pszAddon) : m_pszAddon(pszAddon) {}
+	AddonId(const char *pszAddon) : m_pszAddon(pszAddon ? pszAddon : "") {}
+	AddonId(PublishedFileId_t iAddon) : m_pszAddon(std::to_string(iAddon)) {}
+
+	// 0 means none or it's a community map
+	operator PublishedFileId_t() const
+	{
+		return m_pszAddon.empty() ? 0 : V_StringToUint64(m_pszAddon.c_str(), 0);
+	}
+
+	operator const std::string &() const
+	{
+		return m_pszAddon;
+	}
+
+	operator const char *() const
+	{
+		return m_pszAddon.c_str();
+	}
+
+	const std::string &ToString() const { return m_pszAddon; }
+	const char *c_str() const { return m_pszAddon.c_str(); }
+	PublishedFileId_t ToSteamId() const { return static_cast<PublishedFileId_t>(*this); }
+	bool empty() const { return m_pszAddon.empty(); }
+	void clear() { m_pszAddon.clear(); }
+
+	bool operator==(const AddonId &o) const { return m_pszAddon == o.m_pszAddon; }
+	bool operator!=(const AddonId &o) const { return m_pszAddon != o.m_pszAddon; }
+
+private:
+	std::string m_pszAddon;
+};
+
+template <typename Container, typename T>
+bool Contains(const Container &container, const T &value)
+{
+	return std::find(container.begin(), container.end(), value) != container.end();
+}
+
+// Returns true if an element was removed, false if value was not present.
+template <typename Container, typename T>
+bool RemoveValue(Container &container, const T &value)
+{
+	auto it = std::find(container.begin(), container.end(), value);
+	if (it == container.end())
+		return false;
+	container.erase(it);
+	return true;
+}
 
 class MultiAddonManager : public ISmmPlugin, public IMetamodListener, public IMultiAddonManager
 {
@@ -81,13 +137,13 @@ public: //hooks
 	bool UnmountAddon(const char *pszAddon);
 	bool AddAddon(const char *pszAddon, bool bRefresh = false);
 	bool RemoveAddon(const char *pszAddon, bool bRefresh = false);
-	bool IsAddonMounted(const char *pszAddon, bool bCheckWorkshopMap = false) { return m_MountedAddons.Find(pszAddon) != -1 || (bCheckWorkshopMap && GetCurrentWorkshopMap() == pszAddon);  }
+	bool IsAddonMounted(const char *pszAddon, bool bCheckWorkshopMap = false) { return Contains(m_MountedAddons, AddonId(pszAddon)) || (bCheckWorkshopMap && GetCurrentWorkshopMap() == AddonId(pszAddon));  }
 	bool DownloadAddon(const char *pszAddon, bool bImportant = false, bool bForce = false);
 	void PrintDownloadProgress();
 	void RefreshAddons(bool bReloadMap = false);
 	void ClearAddons();
 	void ReloadMap();
-	std::string GetCurrentWorkshopMap() { return m_sCurrentWorkshopMap; }
+	AddonId GetCurrentWorkshopMap() { return m_sCurrentWorkshopMap; }
 	void SetCurrentWorkshopMap(const char *pszWorkshopID) { m_sCurrentWorkshopMap = pszWorkshopID; }
 	void ClearCurrentWorkshopMap() { m_sCurrentWorkshopMap.clear(); }
 
@@ -95,7 +151,7 @@ public: //hooks
 	void AddClientAddon(const char *pszAddon, uint64 steamID64 = 0, bool bRefresh = false);
 	void RemoveClientAddon(const char *pszAddon, uint64 steamID64 = 0);
 	void ClearClientAddons(uint64 steamID64 = 0);
-	void GetClientAddons(CUtlVector<std::string> &addons, uint64 steamID64 = 0);
+	void GetClientAddons(std::vector<AddonId> &addons, uint64 steamID64 = 0);
 	void CheckClientAddons(uint64 steamID64);
 	void AddTimedOutClient(uint64 steamID64) { m_TimedOutClients.insert(steamID64); }
 
@@ -109,13 +165,13 @@ public:
 	const char *GetDate() override			{ return __DATE__; }
 	const char *GetLogTag() override		{ return PLUGIN_LOGTAG; }
 
-	CUtlVector<std::string> m_ExtraAddons;
+	std::vector<AddonId> m_ExtraAddons;
 
 	// List of addons mounted by the plugin. Does not contain the original server mounted addon.
-	CUtlVector<std::string> m_MountedAddons;
+	std::vector<AddonId> m_MountedAddons;
 	
 	// List of addons to be mounted by the all clients.
-	CUtlVector<std::string> m_GlobalClientAddons;
+	std::vector<AddonId> m_GlobalClientAddons;
 
 private:
 	KHook::Virtual<IServerGameDLL, void, bool, bool, bool> m_hookGameFrame;
@@ -132,20 +188,20 @@ private:
 	KHook::Function<void, INetworkGameServer *, CServerSideClient *> m_hookReplyConnection;
 	KHook::Function<uint64> m_hookScriptGetAddon;
 
-	CUtlVector<PublishedFileId_t> m_ImportantDownloads; // Important addon downloads that will trigger a map reload when finished
+	std::vector<AddonId> m_ImportantDownloads; // Important addon downloads that will trigger a map reload when finished
 	struct PendingDownload_t
 	{
-		PublishedFileId_t addon;
+		AddonId addon;
 		bool bImportant;
 		bool bForce;
 	};
 	std::vector<PendingDownload_t> m_PendingDownloads; // Downloads that failed to start because the server wasn't logged on to Steam yet
-	CUtlQueue<PublishedFileId_t> m_DownloadQueue; // Queue of all addon downloads to print progress
+	std::deque<AddonId> m_DownloadQueue; // Queue of all addon downloads to print progress
 
 	STEAM_GAMESERVER_CALLBACK_MANUAL(MultiAddonManager, OnAddonDownloaded, DownloadItemResult_t, m_CallbackDownloadItemResult);
 	STEAM_GAMESERVER_CALLBACK_MANUAL(MultiAddonManager, OnSteamServersConnected, SteamServersConnected_t, m_CallbackSteamServersConnected);
 	// Used when reloading current map
-	std::string m_sCurrentWorkshopMap;
+	AddonId m_sCurrentWorkshopMap;
 
 	std::set<uint64> m_TimedOutClients;
 };

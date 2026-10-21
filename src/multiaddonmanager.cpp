@@ -67,32 +67,33 @@ void Panic(const char *msg, ...)
 	va_end(args);
 }
 
-void StringToVector(const char *pszString, CUtlVector<std::string> &vector)
+void StringToVector(const char *pszString, std::vector<AddonId> &vector)
 {
-	std::stringstream stream(pszString);
+	vector.clear();
 
-	vector.RemoveAll();
+	if (!pszString)
+		return;
 
-	while (stream.good())
+	std::string token;
+	std::istringstream stream(pszString);
+
+	while (std::getline(stream, token, ','))
 	{
-		std::string substr;
-		getline(stream, substr, ',');
-
-		if (!substr.empty())
-			vector.AddToTail(substr);
+		if (!token.empty())
+			vector.emplace_back(token);
 	}
 }
 
-std::string VectorToString(CUtlVector<std::string> &vector)
+std::string VectorToString(const std::vector<AddonId> &vector)
 {
 	std::string result;
 
-	FOR_EACH_VEC(vector, i)
+	for (const auto &addon : vector)
 	{
-		result += vector[i];
-
-		if (i + 1 < vector.Count())
+		if (!result.empty())
 			result += ',';
+
+		result += addon.c_str();
 	}
 
 	return result;
@@ -166,9 +167,9 @@ enum ClientConnectedState_t
 struct ClientAddonInfo_t
 {
 	double lastActiveTime {};
-	CUtlVector<std::string> addonsToLoad;
-	CUtlVector<std::string> downloadedAddons;
-	std::string currentPendingAddon;
+	std::vector<AddonId> addonsToLoad;
+	std::vector<AddonId> downloadedAddons;
+	AddonId currentPendingAddon;
 	ClientConnectedState_t connectedState = CLIENTCONN_NONE;
 	double connectionStartTime {};
 };
@@ -416,16 +417,16 @@ bool MultiAddonManager::MountAddon(const char *pszAddon, bool bAddToTail = false
 	if (!pszAddon || !*pszAddon)
 		return false;
 
-	CUtlVector<std::string> serverMountedAddons;
+	std::vector<AddonId> serverMountedAddons;
 	StringToVector(this->m_sCurrentWorkshopMap.c_str(), serverMountedAddons);
-	if (serverMountedAddons.Find(pszAddon) != -1)
+	if (Contains(serverMountedAddons, AddonId(pszAddon)))
 	{
 		Message("%s: Addon %s is already mounted by the server\n", __func__, pszAddon);
 		return false;
 	}
 
-	PublishedFileId_t iAddon = V_StringToUint64(pszAddon, 0);
-	uint32 iAddonState = GetSteamUGC()->GetItemState(iAddon);
+	const AddonId addon(pszAddon);
+	uint32 iAddonState = GetSteamUGC()->GetItemState(addon);
 
 	if (iAddonState & k_EItemStateLegacyItem)
 	{
@@ -465,7 +466,7 @@ bool MultiAddonManager::MountAddon(const char *pszAddon, bool bAddToTail = false
 		BuildAddonPath(pszAddon, pszPath, sizeof(pszPath), true);
 	}
 
-	if (m_MountedAddons.Find(pszAddon) != -1)
+	if (Contains(m_MountedAddons, AddonId(pszAddon)))
 	{
 		Panic("%s: Addon %s is already mounted\n", __func__, pszAddon);
 		return false;
@@ -474,7 +475,7 @@ bool MultiAddonManager::MountAddon(const char *pszAddon, bool bAddToTail = false
 	Message("Adding search path: %s\n", pszPath);
 
 	g_pFullFileSystem->AddSearchPath(pszPath, "GAME", bAddToTail ? PATH_ADD_TO_TAIL : PATH_ADD_TO_HEAD, SEARCH_PATH_PRIORITY_VPK);
-	m_MountedAddons.AddToTail(pszAddon);
+	m_MountedAddons.push_back(pszAddon);
 
 	return true;
 }
@@ -490,7 +491,7 @@ bool MultiAddonManager::UnmountAddon(const char *pszAddon)
 	if (!g_pFullFileSystem->RemoveSearchPath(path, "GAME"))
 		return false;
 
-	m_MountedAddons.FindAndFastRemove(pszAddon);
+	RemoveValue(m_MountedAddons, AddonId(pszAddon));
 
 	Message("Removing search path: %s\n", path);
 
@@ -499,13 +500,15 @@ bool MultiAddonManager::UnmountAddon(const char *pszAddon)
 
 void MultiAddonManager::PrintDownloadProgress()
 {
-	if (m_DownloadQueue.Count() == 0)
+	if (m_DownloadQueue.empty())
 		return;
+
+	const AddonId &addon = m_DownloadQueue.front();
 
 	uint64 iBytesDownloaded = 0;
 	uint64 iTotalBytes = 0;
 
-	if (!GetSteamUGC()->GetItemDownloadInfo(m_DownloadQueue.Head(), &iBytesDownloaded, &iTotalBytes) || !iTotalBytes)
+	if (!GetSteamUGC()->GetItemDownloadInfo(addon, &iBytesDownloaded, &iTotalBytes) || !iTotalBytes)
 		return;
 
 	double flMBDownloaded = (double)iBytesDownloaded / 1024 / 1024;
@@ -514,7 +517,7 @@ void MultiAddonManager::PrintDownloadProgress()
 	double flProgress = (double)iBytesDownloaded / (double)iTotalBytes;
 	flProgress *= 100.f;
 
-	Message("Downloading addon %lli: %.2f/%.2f MB (%.2f%%)\n", m_DownloadQueue.Head(), flMBDownloaded, flTotalMB, flProgress);
+	Message("Downloading addon %s: %.2f/%.2f MB (%.2f%%)\n", addon.c_str(), flMBDownloaded, flTotalMB, flProgress);
 }
 
 // bImportant adds downloads to the pending list, which will reload the current map once the list is exhausted
@@ -528,31 +531,32 @@ bool MultiAddonManager::DownloadAddon(const char *pszAddon, bool bImportant, boo
 		return false;
 	}
 
-	PublishedFileId_t addon = V_StringToUint64(pszAddon, 0);
+	const AddonId addon(pszAddon);
+	PublishedFileId_t steamId = addon;
 
-	if (addon == 0)
+	if (steamId == 0)
 	{
 		Panic("%s: Invalid addon %s\n", __func__, pszAddon);
 		return false;
 	}
 
-	if (m_DownloadQueue.Check(addon))
+	if (Contains(m_DownloadQueue, addon))
 	{
 		Panic("%s: Addon %s is already queued for download!\n", __func__, pszAddon);
 		return false;
 	}
 
-	uint32 nItemState = GetSteamUGC()->GetItemState(addon);
+	uint32 nItemState = GetSteamUGC()->GetItemState(steamId);
 
 	if (!bForce && (nItemState & k_EItemStateInstalled))
 	{
-		Message("Addon %lli is already installed\n", addon);
+		Message("Addon %s is already installed\n", pszAddon);
 		return true;
 	}
 
-	if (!GetSteamUGC()->DownloadItem(addon, false))
+	if (!GetSteamUGC()->DownloadItem(steamId, false))
 	{
-		Panic("%s: Addon download for %lli failed to start, addon ID is invalid or server is not logged on Steam\n", __func__, addon);
+		Panic("%s: Addon download for %s failed to start, addon ID is invalid or server is not logged on Steam\n", __func__, pszAddon);
 
 		// Most likely the server hasn't logged on to Steam yet, retry once it does (see OnSteamServersConnected)
 		bool bPending = false;
@@ -566,12 +570,12 @@ bool MultiAddonManager::DownloadAddon(const char *pszAddon, bool bImportant, boo
 		return false;
 	}
 	
-	if (bImportant && m_ImportantDownloads.Find(addon) == -1)
-		m_ImportantDownloads.AddToTail(addon);
+	if (bImportant && !Contains(m_ImportantDownloads, addon))
+		m_ImportantDownloads.push_back(addon);
 
-	m_DownloadQueue.Insert(addon);
+	m_DownloadQueue.push_back(addon);
 
-	Message("Addon download started for %lli\n", addon);
+	Message("Addon download started for %s\n", pszAddon);
 
 	return true;
 }
@@ -589,11 +593,7 @@ void MultiAddonManager::OnSteamServersConnected(SteamServersConnected_t *pResult
 	Message("Logged on to Steam, retrying %i pending addon download(s)\n", (int)pending.size());
 
 	for (const auto &download : pending)
-	{
-		char szAddon[32];
-		V_snprintf(szAddon, sizeof(szAddon), "%llu", (unsigned long long)download.addon);
-		DownloadAddon(szAddon, download.bImportant, download.bForce);
-	}
+		DownloadAddon(download.addon.c_str(), download.bImportant, download.bForce);
 }
 
 void MultiAddonManager::RefreshAddons(bool bReloadMap)
@@ -604,14 +604,14 @@ void MultiAddonManager::RefreshAddons(bool bReloadMap)
 	Message("Refreshing addons (%s)\n", VectorToString(m_ExtraAddons).c_str());
 
 	// Remove our paths first in case addons were switched
-	FOR_EACH_VEC_BACK(m_MountedAddons, i)
-		UnmountAddon(m_MountedAddons[i].c_str());
+	for (const auto& addon : m_MountedAddons)
+		UnmountAddon(addon);
 
 	bool bAllAddonsMounted = true;
 
-	FOR_EACH_VEC(m_ExtraAddons, i)
+	for (const auto &addon : m_ExtraAddons)
 	{
-		if (!MountAddon(m_ExtraAddons[i].c_str()))
+		if (!MountAddon(addon))
 			bAllAddonsMounted = false;
 	}
 
@@ -621,13 +621,13 @@ void MultiAddonManager::RefreshAddons(bool bReloadMap)
 
 void MultiAddonManager::ClearAddons()
 {
-	m_ExtraAddons.RemoveAll();
+	m_ExtraAddons.clear();
 
 	// Update the convar to reflect the new addon list, but don't trigger the callback
 	mm_extra_addons.GetConVarData()->Value(0)->m_StringValue = "";
 	
-	FOR_EACH_VEC_BACK(m_MountedAddons, i)
-		UnmountAddon(m_MountedAddons[i].c_str());
+	for (const auto& addon : m_MountedAddons)
+		UnmountAddon(addon);
 }
 
 KHook::Return<void> MultiAddonManager::Hook_GameServerSteamAPIActivated(IServerGameDLL *pThis)
@@ -640,8 +640,6 @@ KHook::Return<void> MultiAddonManager::Hook_GameServerSteamAPIActivated(IServerG
 
 	m_CallbackDownloadItemResult.Register(this, &MultiAddonManager::OnAddonDownloaded);
 	m_CallbackSteamServersConnected.Register(this, &MultiAddonManager::OnSteamServersConnected);
-
-	RefreshAddons(true);
 
 	return {KHook::Action::Ignore};
 }
@@ -663,21 +661,23 @@ void MultiAddonManager::ReloadMap()
 
 void MultiAddonManager::OnAddonDownloaded(DownloadItemResult_t *pResult)
 {
+	const AddonId addon(pResult->m_nPublishedFileId);
+
 	if (pResult->m_eResult == k_EResultOK)
-		Message("Addon %lli downloaded successfully\n", pResult->m_nPublishedFileId);
+		Message("Addon %s downloaded successfully\n", addon.c_str());
 	else
-		Panic("Addon %lli download failed with reason \"%s\" (%i)\n", pResult->m_nPublishedFileId, g_SteamErrorMessages[pResult->m_eResult], pResult->m_eResult);
+		Panic("Addon %s download failed with reason \"%s\" (%i)\n", addon.c_str(), g_SteamErrorMessages[pResult->m_eResult], pResult->m_eResult);
 
 	// This download isn't triggered by us, don't do anything
-	if (!m_DownloadQueue.Check(pResult->m_nPublishedFileId))
+	if (!Contains(m_DownloadQueue, addon))
 		return;
 
-	m_DownloadQueue.RemoveAtHead();
+	m_DownloadQueue.pop_front();
 	
-	bool bFound = m_ImportantDownloads.FindAndRemove(pResult->m_nPublishedFileId);
+	bool bFound = RemoveValue(m_ImportantDownloads, addon);
 	
 	// That was the last important download, now reload the map
-	if (bFound && m_ImportantDownloads.Count() == 0)
+	if (bFound && m_ImportantDownloads.empty())
 	{
 		Message("All addon downloads finished, reloading map %s\n", GetGlobals()->mapname);
 		ReloadMap();
@@ -686,7 +686,7 @@ void MultiAddonManager::OnAddonDownloaded(DownloadItemResult_t *pResult)
 
 bool MultiAddonManager::AddAddon(const char *pszAddon, bool bRefresh)
 {
-	if (m_ExtraAddons.Find(pszAddon) != -1)
+	if (Contains(m_ExtraAddons, AddonId(pszAddon)))
 	{
 		Panic("Addon %s is already in the list!\n", pszAddon);
 		return false;
@@ -694,7 +694,7 @@ bool MultiAddonManager::AddAddon(const char *pszAddon, bool bRefresh)
 
 	Message("Adding %s to addon list\n", pszAddon);
 
-	m_ExtraAddons.AddToTail(pszAddon);
+	m_ExtraAddons.push_back(pszAddon);
 
 	// Update the convar to reflect the new addon list, but don't trigger the callback
 	mm_extra_addons.GetConVarData()->Value(0)->m_StringValue = VectorToString(m_ExtraAddons).c_str();
@@ -709,9 +709,7 @@ bool MultiAddonManager::AddAddon(const char *pszAddon, bool bRefresh)
 
 bool MultiAddonManager::RemoveAddon(const char *pszAddon, bool bRefresh)
 {
-	int index = m_ExtraAddons.Find(pszAddon);
-
-	if (index == -1)
+	if (!Contains(m_ExtraAddons, AddonId(pszAddon)))
 	{
 		Panic("Addon %s is not in the list!\n", pszAddon);
 		return false;
@@ -719,7 +717,7 @@ bool MultiAddonManager::RemoveAddon(const char *pszAddon, bool bRefresh)
 
 	Message("Removing %s from addon list\n", pszAddon);
 
-	m_ExtraAddons.Remove(index);
+	RemoveValue(m_ExtraAddons, AddonId(pszAddon));
 
 	// Update the convar to reflect the new addon list, but don't trigger the callback
 	mm_extra_addons.GetConVarData()->Value(0)->m_StringValue = VectorToString(m_ExtraAddons).c_str();
@@ -762,25 +760,25 @@ void MultiAddonManager::AddClientAddon(const char *pszAddon, uint64 steamID64, b
 {
 	if (!steamID64)
 	{
-		if (m_GlobalClientAddons.Find(pszAddon) != -1)
+		if (Contains(m_GlobalClientAddons, AddonId(pszAddon)))
 		{
 			Panic("Addon %s is already in the list!\n", pszAddon);
 			return;
 		}
 	
-		m_GlobalClientAddons.AddToTail(pszAddon);
+		m_GlobalClientAddons.push_back(pszAddon);
 		mm_client_extra_addons.GetConVarData()->Value(0)->m_StringValue = VectorToString(m_GlobalClientAddons).c_str();	
 	}
 	else
 	{
-		if (g_ClientAddons[steamID64].addonsToLoad.Find(pszAddon) != -1)
+		if (Contains(g_ClientAddons[steamID64].addonsToLoad, AddonId(pszAddon)))
 		{
 			Panic("Addon %s is already in the list!\n", pszAddon);
 			return;
 		}
 
 		ClientAddonInfo_t &clientInfo = g_ClientAddons[steamID64];
-		clientInfo.addonsToLoad.AddToTail(pszAddon);
+		clientInfo.addonsToLoad.push_back(pszAddon);
 	}
 	
 	if (bRefresh)
@@ -805,19 +803,17 @@ void MultiAddonManager::AddClientAddon(const char *pszAddon, uint64 steamID64, b
 					break;
 				ClientAddonInfo_t &clientInfo = g_ClientAddons[steamID64];
 
-				CUtlVector<std::string> addons;
+				std::vector<AddonId> addons;
 				GetClientAddons(addons, steamID64);
 				
-				FOR_EACH_VEC(clientInfo.downloadedAddons, j)
-				{
-					addons.FindAndRemove(clientInfo.downloadedAddons[j]);
-				}
+				for (const auto &downloaded : clientInfo.downloadedAddons)
+					RemoveValue(addons, downloaded);
 
-				if (!addons.Count())
+				if (addons.empty())
 				{
 					break;
 				}
-				clientInfo.currentPendingAddon = addons.Head();
+				clientInfo.currentPendingAddon = addons.front();
 				
 				pClient->GetNetChannel()->SendNetMessage(pMsg, BUF_RELIABLE);
 
@@ -835,13 +831,13 @@ void MultiAddonManager::RemoveClientAddon(const char *pszAddon, uint64 steamID64
 {
 	if (!steamID64)
 	{
-		m_GlobalClientAddons.FindAndRemove(pszAddon);
+		RemoveValue(m_GlobalClientAddons, AddonId(pszAddon));
 		mm_client_extra_addons.GetConVarData()->Value(0)->m_StringValue = VectorToString(m_GlobalClientAddons).c_str();	
 	}
 	else
 	{
 		ClientAddonInfo_t &clientInfo = g_ClientAddons[steamID64];
-		clientInfo.addonsToLoad.FindAndRemove(pszAddon);
+		RemoveValue(clientInfo.addonsToLoad, AddonId(pszAddon));
 	}
 }
 
@@ -849,37 +845,37 @@ void MultiAddonManager::ClearClientAddons(uint64 steamID64)
 {
 	if (!steamID64)
 	{
-		m_GlobalClientAddons.RemoveAll();
+		m_GlobalClientAddons.clear();
 		mm_client_extra_addons.GetConVarData()->Value(0)->m_StringValue = VectorToString(m_GlobalClientAddons).c_str();	
 	}
 	else
 	{
 		ClientAddonInfo_t &clientInfo = g_ClientAddons[steamID64];
-		clientInfo.addonsToLoad.RemoveAll();
+		clientInfo.addonsToLoad.clear();
 	}
 }
 
-void MultiAddonManager::GetClientAddons(CUtlVector<std::string> &addons, uint64 steamID64)
+void MultiAddonManager::GetClientAddons(std::vector<AddonId> &addons, uint64 steamID64)
 {
-	addons.RemoveAll();
+	addons.clear();
 	
 	if (!GetCurrentWorkshopMap().empty())
-		addons.AddToTail(GetCurrentWorkshopMap().c_str());
+		addons.push_back(GetCurrentWorkshopMap());
 	// The list of mounted addons should never contain the workshop map.
-	addons.AddVectorToTail(m_MountedAddons);
+	addons.insert(addons.end(), m_MountedAddons.begin(), m_MountedAddons.end());
 	// Also make sure we don't have duplicates.
-	FOR_EACH_VEC(m_GlobalClientAddons, i)
+	for (const auto &addon : m_GlobalClientAddons)
 	{
-		if (addons.Find(m_GlobalClientAddons[i].c_str()) == -1)
-			addons.AddToTail(m_GlobalClientAddons[i].c_str());
+		if (!Contains(addons, addon))
+			addons.push_back(addon);
 	}
 	// If we specify a client steamID64, check for the addons exclusive to this client as well.
 	if (steamID64)
 	{
-		FOR_EACH_VEC(g_ClientAddons[steamID64].addonsToLoad, i)
+		for (const auto &addon : g_ClientAddons[steamID64].addonsToLoad)
 		{
-			if (addons.Find(g_ClientAddons[steamID64].addonsToLoad[i].c_str()) == -1)
-				addons.AddToTail(g_ClientAddons[steamID64].addonsToLoad[i].c_str());
+			if (!Contains(addons, addon))
+				addons.push_back(addon);
 		}
 	}
 }
@@ -978,23 +974,23 @@ KHook::Return<bool> MultiAddonManager::Hook_SendNetMessage(CServerSideClientBase
 
 	auto pMsg = const_cast<CNetMessage*>(pData)->ToPB<CNETMsg_SignonState>();
 
-	CUtlVector<std::string> addons;
+	std::vector<AddonId> addons;
 	g_MultiAddonManager.GetClientAddons(addons, steamID64);
 
 	if (pMsg->signon_state() == SIGNONSTATE_CHANGELEVEL)
 	{
 		// When switching to another map, the signon message might contain more than 1 addon.
 		// This puts the client in limbo because client doesn't know how to handle multiple addons at the same time.
-		CUtlVector<std::string> addonsList;
+		std::vector<AddonId> addonsList;
 		StringToVector(pMsg->addons().c_str(), addonsList);
-		if (addonsList.Count() > 1)
+		if (addonsList.size() > 1)
 		{
 			// If there's more than one addon, ensure that it takes the first addon (which should be the workshop map or the first custom addon)
-			pMsg->set_addons(addonsList.Head());
+			pMsg->set_addons(addonsList.front().c_str());
 			// Since the client will download the addon contained inside this messsage, we might as well add it to the list of client's downloaded addons.
-			clientInfo.currentPendingAddon = addonsList.Head();
+			clientInfo.currentPendingAddon = addonsList.front();
 		}
-		else if (addonsList.Count() == 1)
+		else if (addonsList.size() == 1)
 		{
 			// Nothing to do here, the rest of the required addons can be sent later.
 			clientInfo.currentPendingAddon = pMsg->addons();
@@ -1002,21 +998,19 @@ KHook::Return<bool> MultiAddonManager::Hook_SendNetMessage(CServerSideClientBase
 
 		return {KHook::Action::Ignore};
 	}
-	FOR_EACH_VEC(clientInfo.downloadedAddons, i)
-	{
-		addons.FindAndRemove(clientInfo.downloadedAddons[i]);
-	}
+	for (const auto &downloaded : clientInfo.downloadedAddons)
+		RemoveValue(addons, downloaded);
 
 	// Check if client has downloaded everything.
-	if (addons.Count() == 0)
+	if (addons.empty())
 		return { KHook::Action::Ignore };
 
 	if (mm_addon_debug.Get())
-		Message("%s: Number of addons remaining to download for %lli: %d\n", __func__, steamID64, addons.Count());
+		Message("%s: Number of addons remaining to download for %lli: %d\n", __func__, steamID64, (int)addons.size());
 
 	// Otherwise, send the next addon to the client.
-	clientInfo.currentPendingAddon = addons.Head();
-	pMsg->set_addons(addons.Head().c_str());
+	clientInfo.currentPendingAddon = addons.front();
+	pMsg->set_addons(addons.front().c_str());
 	pMsg->set_signon_state(SIGNONSTATE_CHANGELEVEL);
 
 	return {KHook::Action::Ignore};
@@ -1060,7 +1054,7 @@ KHook::Return<void> MultiAddonManager::Hook_SetPendingHostStateRequest(CHostStat
 	if (!pRequest->m_Addons.IsEmpty() && g_pFullFileSystem->IsDirectory(pRequest->m_Addons.String(), "OFFICIAL_ADDONS"))
 		SetCurrentWorkshopMap(pRequest->m_Addons);
 
-	if (m_ExtraAddons.Count() == 0)
+	if (m_ExtraAddons.empty())
 		return {KHook::Action::Ignore};
 
 	// Rebuild the addon list. We always start with the original addon.
@@ -1071,10 +1065,9 @@ KHook::Return<void> MultiAddonManager::Hook_SetPendingHostStateRequest(CHostStat
 	else
 	{
 		// Don't add the same addon twice. Hopefully no server owner is diabolical enough to do things like `map de_dust2 customgamemode=1234,5678`.
-		CUtlVector<std::string> newAddons;
-		newAddons.CopyArray(m_ExtraAddons.Base(), m_ExtraAddons.Count());
-		newAddons.FindAndRemove(GetCurrentWorkshopMap().c_str());
-		newAddons.AddToHead(GetCurrentWorkshopMap().c_str());
+		std::vector<AddonId> newAddons = m_ExtraAddons;
+		RemoveValue(newAddons, GetCurrentWorkshopMap());
+		newAddons.insert(newAddons.begin(), GetCurrentWorkshopMap());
 		pRequest->m_Addons = VectorToString(newAddons).c_str();
 	}
 
@@ -1086,10 +1079,10 @@ void MultiAddonManager::CheckClientAddons(uint64 steamID64)
 	ClientAddonInfo_t &clientInfo = g_ClientAddons[steamID64];
 	clientInfo.connectedState = CLIENTCONN_JOINED;
 
-	CUtlVector<std::string> addons;
+	std::vector<AddonId> addons;
 	GetClientAddons(addons, steamID64);
 	// We don't have an extra addon set so do nothing here, also don't do anything if we're a listenserver
-	if (addons.Count() == 0 || !g_pEngineServer->IsDedicatedServer())
+	if (addons.empty() || !g_pEngineServer->IsDedicatedServer())
 		return;
 
 	if (!clientInfo.currentPendingAddon.empty())
@@ -1106,7 +1099,7 @@ void MultiAddonManager::CheckClientAddons(uint64 steamID64)
 				Message("%s: Client %lli has connected within the interval with the pending addon %s, will send next addon in SendNetMessage hook\n",
 					__func__, steamID64, clientInfo.currentPendingAddon.c_str());
 
-			clientInfo.downloadedAddons.AddToTail(clientInfo.currentPendingAddon);
+			clientInfo.downloadedAddons.push_back(clientInfo.currentPendingAddon);
 		}
 		// Reset the current pending addon anyway, SendNetMessage tells us which addon to download next.
 		clientInfo.currentPendingAddon.clear();
@@ -1140,7 +1133,7 @@ KHook::Return<void> MultiAddonManager::Hook_ClientActive_Post(IServerGameClients
 {
 	// When the client reaches this stage, they should already have all the necessary addons downloaded, so we can safely remove the downloaded addons list here.
 	if (!mm_cache_clients_with_addons.Get())
-		g_ClientAddons[steamID64].downloadedAddons.RemoveAll();
+		g_ClientAddons[steamID64].downloadedAddons.clear();
 
 	return {KHook::Action::Ignore};
 }
@@ -1206,7 +1199,7 @@ KHook::Return<void> MultiAddonManager::Hook_ReplyConnection(INetworkGameServer *
 			Message("%s: Client %lli has not connected for a while, clearing the cache\n", __func__, steamID64);
 
 		clientInfo.currentPendingAddon.clear();
-		clientInfo.downloadedAddons.RemoveAll();
+		clientInfo.downloadedAddons.clear();
 	}
 	clientInfo.lastActiveTime = Plat_FloatTime();
 
@@ -1215,9 +1208,9 @@ KHook::Return<void> MultiAddonManager::Hook_ReplyConnection(INetworkGameServer *
 	CUtlString originalAddons = *addons;
 
 	// Figure out which addons the client should be loading.
-	CUtlVector<std::string> clientAddons;
+	std::vector<AddonId> clientAddons;
 	GetClientAddons(clientAddons, steamID64);
-	if (clientAddons.Count() == 0)
+	if (clientAddons.empty())
 	{
 		// No addons to send. This means the list of original addons is empty as well.
 		assert(originalAddons.IsEmpty());
@@ -1240,18 +1233,19 @@ KHook::Return<void> MultiAddonManager::Hook_ReplyConnection(INetworkGameServer *
 	}
 
 	// Handle the first addon here. The rest should be handled in the SendNetMessage hook.
-	if (clientInfo.downloadedAddons.Find(clientAddons[0]) == -1)
+	if (!Contains(clientInfo.downloadedAddons, clientAddons[0]))
 		clientInfo.currentPendingAddon = clientAddons[0];
 
 	// In some cases, clients can do a signature check on addons which fails and instantly disconnects them
 	// As a mitigation, remove all undownloaded addons so the client never does the failing signature check
-	FOR_EACH_VEC_BACK(clientAddons, i)
-	{
-		if (clientInfo.downloadedAddons.Find(clientAddons[i]) != -1 || clientAddons[i] == clientInfo.currentPendingAddon)
-			continue;
-
-		clientAddons.Remove(i);
-	}
+	clientAddons.erase(
+		std::remove_if(clientAddons.begin(), clientAddons.end(),
+			[&](const AddonId &id)
+			{
+				return !Contains(clientInfo.downloadedAddons, id)
+					&& id != clientInfo.currentPendingAddon;
+			}),
+		clientAddons.end());
 	
 	*addons = VectorToString(clientAddons).c_str();
 
@@ -1267,10 +1261,10 @@ KHook::Return<void> MultiAddonManager::Hook_ReplyConnection(INetworkGameServer *
 
 KHook::Return<uint64> MultiAddonManager::Hook_ScriptGetAddon()
 {
-	if (!m_ExtraAddons.Count())
+	if (m_ExtraAddons.empty())
 		return {KHook::Action::Ignore};
 
-	uint64 iAddon = V_StringToUint64(GetCurrentWorkshopMap().c_str(), 0);
+	uint64 iAddon = GetCurrentWorkshopMap();
 	
 	if (!iAddon)
 		return {KHook::Action::Ignore};
