@@ -21,12 +21,15 @@
 
 #include <ISmmPlugin.h>
 #include <igameevents.h>
+#include <eiface.h>
 #include "khook.hpp"
 #include "utlqueue.h"
 #include "utlvector.h"
+#include <vector>
 #include "networksystem/inetworkserializer.h"
 #include "steam/steam_api_common.h"
 #include "steam/isteamugc.h"
+#include "steam/isteamuser.h"
 #include "imultiaddonmanager.h"
 
 #ifdef _WIN32
@@ -126,9 +129,17 @@ private:
 	KHook::Function<uint64> m_hookScriptGetAddon;
 
 	CUtlVector<PublishedFileId_t> m_ImportantDownloads; // Important addon downloads that will trigger a map reload when finished
+	struct PendingDownload_t
+	{
+		PublishedFileId_t addon;
+		bool bImportant;
+		bool bForce;
+	};
+	std::vector<PendingDownload_t> m_PendingDownloads; // Downloads that failed to start because the server wasn't logged on to Steam yet
 	CUtlQueue<PublishedFileId_t> m_DownloadQueue; // Queue of all addon downloads to print progress
 
 	STEAM_GAMESERVER_CALLBACK_MANUAL(MultiAddonManager, OnAddonDownloaded, DownloadItemResult_t, m_CallbackDownloadItemResult);
+	STEAM_GAMESERVER_CALLBACK_MANUAL(MultiAddonManager, OnSteamServersConnected, SteamServersConnected_t, m_CallbackSteamServersConnected);
 	// Used when reloading current map
 	std::string m_sCurrentWorkshopMap;
 
