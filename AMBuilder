@@ -1,64 +1,40 @@
 # vim: set sts=2 ts=8 sw=2 tw=99 et ft=python: 
 import os
-import subprocess
 
-MMSPlugin.plugin_name = 'multiaddonmanager'
-MMSPlugin.plugin_alias = 'multiaddonmanager'
+project = builder.LibraryProject(MMSPlugin.metadata["name"])
 
-# Here only one sdk should be available to generate only one executable in the end,
-# as multi-sdk loading isn't supported out of the box by metamod, and would require specifying the full path in the vdf
-# which in the end would ruin the multi-platform (unix, win etc) loading by metamod as it won't be able to append platform specific extension
-# so just fall back to the single binary.
-# Multi-sdk solutions should be manually loaded with a custom plugin loader (examples being sourcemod, stripper:source)
 for sdk_target in MMSPlugin.sdk_targets:
   sdk = sdk_target.sdk
   cxx = sdk_target.cxx
 
-  binary = MMSPlugin.HL2Library(builder, cxx, MMSPlugin.plugin_name, sdk)
-  
-  try:
-    version = subprocess.check_output(['git', 'describe', '--tags', '--long']).decode('ascii').strip()
-  except subprocess.SubprocessError as e:
-    version = "dev"
-    print("git describe failed as there are no tags")
-	
-  print(f'Setting version to "{version}"')
-  binary.compiler.defines += ['MULTIADDONMANAGER_VERSION="%s"'%(version)]
+  binary = MMSPlugin.HL2Library(builder, cxx, project, sdk)
 
-  target_folder = 'Debug' if builder.options.debug else 'Release'
+  binary.compiler.cxxincludes += [
+    os.path.join(builder.sourcePath, 'src', 'utils'),
+    os.path.join(builder.sourcePath, 'public'),
+  ]
+
+  if builder.options.opt == '1':
+    if binary.compiler.behavior == 'gcc':
+      binary.compiler.cxxflags += ['-g0']
 
   if binary.compiler.target.platform == 'linux':
     binary.sources += ['src/utils/plat_unix.cpp']
-    if builder.options.opt == '1':
-      binary.compiler.cxxflags += ['-g0']
   elif binary.compiler.target.platform == 'windows':
-    binary.compiler.postlink += [
-      os.path.join('psapi.lib'),
-      os.path.join(sdk['path'], 'lib', 'public', 'win64', 'steam_api64.lib')
-    ]
     binary.sources += ['src/utils/plat_win.cpp']
 
   binary.sources += [
     'src/multiaddonmanager.cpp'
   ]
-  
-  binary.compiler.cxxincludes += [
-    os.path.join(builder.sourcePath, 'src', 'cs2_sdk'),
-    os.path.join(builder.sourcePath, 'src', 'utils'),
-    os.path.join(builder.sourcePath, 'public'),
-  ]
 
   protoc_builder = builder.tools.Protoc(protoc = sdk_target.protoc, sources = [
     os.path.join(sdk['path'], 'common', 'network_connection.proto'),
     os.path.join(sdk['path'], 'common', 'networkbasetypes.proto'),
-    os.path.join(sdk['path'], 'common', 'valveextensions.proto'),
-    os.path.join(sdk['path'], 'game', 'shared', 'gameevents.proto')
+    os.path.join(sdk['path'], 'common', 'netmessages.proto'),
+    os.path.join(sdk['path'], 'common', 'source2_steam_stats.proto'),
+    os.path.join(sdk['path'], 'common', 'valveextensions.proto')
   ])
-  protoc_builder.protoc.includes += [
-    os.path.join(sdk['path'], 'common')
-  ]
 
   binary.custom = [protoc_builder]
 
-  nodes = builder.Add(binary)
-  MMSPlugin.binaries += [nodes]
+MMSPlugin.tasks += builder.Add(project)

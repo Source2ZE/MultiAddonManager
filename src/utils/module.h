@@ -20,7 +20,7 @@
 #pragma once
 #include "dbg.h"
 #include "interface.h"
-#include "strtools.h"
+#include "tier0/tier0_strtools.h"
 #include "khook.hpp"
 #include "plat.h"
 

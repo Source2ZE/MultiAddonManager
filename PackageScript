@@ -3,19 +3,22 @@ import os
 
 builder.SetBuildFolder('package')
 
+plugin_name = MMSPlugin.metadata['name']
+plugin_alias = MMSPlugin.metadata['alias']
+
 metamod_folder = builder.AddFolder(os.path.join('addons', 'metamod'))
-bin_folder_path = os.path.join('addons', MMSPlugin.plugin_name, 'bin')
+bin_folder_path = os.path.join('addons', plugin_name, 'bin')
 bin_folder = builder.AddFolder(bin_folder_path)
 
 pdb_list = []
-for task in MMSPlugin.binaries:
+for task in MMSPlugin.tasks:
   # This hardly assumes there's only 1 targetted platform and would be overwritten
   # with whatever comes last if multiple are used!
-  with open(os.path.join(builder.buildPath, MMSPlugin.plugin_name + '.vdf'), 'w') as fp:
+  with open(os.path.join(builder.buildPath, plugin_name + '.vdf'), 'w') as fp:
     fp.write('"Metamod Plugin"\n')
     fp.write('{\n')
-    fp.write(f'\t"alias"\t"{MMSPlugin.plugin_alias}"\n')
-    fp.write(f'\t"file"\t"{os.path.join(bin_folder_path, MMSPlugin.plugin_name)}"\n')
+    fp.write(f'\t"alias"\t"{plugin_alias}"\n')
+    fp.write(f'\t"file"\t"{os.path.join(bin_folder_path, plugin_name)}"\n')
     fp.write('}\n')
 
     builder.AddCopy(task.binary, bin_folder)
@@ -23,12 +26,12 @@ for task in MMSPlugin.binaries:
   if task.debug:
     pdb_list.append(task.debug)
 
-builder.AddCopy(os.path.join(builder.buildPath, MMSPlugin.plugin_name + '.vdf'), metamod_folder)
+builder.AddCopy(os.path.join(builder.buildPath, plugin_name + '.vdf'), metamod_folder)
 
 # Generate PDB info.
 with open(os.path.join(builder.buildPath, 'pdblog.txt'), 'wt') as fp:
   for line in pdb_list:
     fp.write(line.path + '\n')
 
-cfg_folder = builder.AddFolder(os.path.join('cfg', MMSPlugin.plugin_name))
-builder.AddCopy(os.path.join(builder.sourcePath, 'cfg', MMSPlugin.plugin_name, 'multiaddonmanager.cfg'), cfg_folder)
+cfg_folder = builder.AddFolder(os.path.join('cfg', plugin_name))
+builder.AddCopy(os.path.join(builder.sourcePath, 'cfg', plugin_name, 'multiaddonmanager.cfg'), cfg_folder)

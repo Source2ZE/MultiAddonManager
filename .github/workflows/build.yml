@@ -50,7 +50,7 @@ jobs:
       - name: Checkout HL2SDK
         uses: actions/checkout@v7
         with:
-          repository: alliedmodders/hl2sdk
+          repository: alliedmodders/s2sdk
           ref: cs2
           path: hl2sdk-cs2
 

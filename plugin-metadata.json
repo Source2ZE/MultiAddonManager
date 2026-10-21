@@ -1,0 +1,11 @@
+{
+	"name": "multiaddonmanager",
+	"alias": "MultiAddonManager",
+	"display_name": "MultiAddonManager",
+	"description": "Allows you to use multiple workshop addons at once and have clients download them",
+	"author": "xen",
+	"url": "https://github.com/Source2ZE/MultiAddonManager",
+	"log_tag": "MultiAddonManager",
+	"license": "GPL v3 License",
+	"version": "{{git-tag}}-{{git-shorthash}}"
+}

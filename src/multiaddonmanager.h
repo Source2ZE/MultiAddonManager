@@ -21,7 +21,14 @@
 
 #include <ISmmPlugin.h>
 #include <igameevents.h>
-#include <eiface.h>
+#include "engine2/gamesessionconfiguration.h"
+#include "engine2/igameeventsystem.h"
+#include "engine2/inetworkgameserver.h"
+#include "engine2/inetworkserverservice.h"
+#include "engine2/isource2server.h"
+#include "engine2/ivengineserver2.h"
+#include "engine2/networkgameserverbase.h"
+#include "engine2/serversideclient.h"
 #include "khook.hpp"
 #include "utlqueue.h"
 #include "utlvector.h"
@@ -32,6 +39,12 @@
 #include "steam/isteamuser.h"
 #include "imultiaddonmanager.h"
 
+#ifdef AMBUILD
+#include "version_gen.h"
+#else
+#include "version_gen_placeholder.h"
+#endif
+
 #ifdef _WIN32
 #define ROOTBIN "/bin/win64/"
 #define GAMEBIN "/csgo/bin/win64/"
@@ -39,14 +52,6 @@
 #define ROOTBIN "/bin/linuxsteamrt64/"
 #define GAMEBIN "/csgo/bin/linuxsteamrt64/"
 #endif
-
-class IGameEventSystem;
-class INetworkGameServer;
-class CNetMessage;
-class CHostStateMgr;
-class CServerSideClientBase;
-class CServerSideClient;
-struct CHostStateRequest;
 
 class MultiAddonManager : public ISmmPlugin, public IMetamodListener, public IMultiAddonManager
 {
@@ -58,15 +63,14 @@ public:
 	void *OnMetamodQuery(const char *iface, int *ret);
 public: //hooks
 	KHook::Return<void> Hook_GameServerSteamAPIActivated(IServerGameDLL *pThis);
-	KHook::Return<void> Hook_StartupServer(INetworkServerService *pThis, const GameSessionConfiguration_t &config, ISource2WorldSession *, const char *);
+	KHook::Return<void> Hook_StartupServer_Post(INetworkServerService *pThis, const GameSessionConfiguration_t &config, ISource2WorldSession *, const char *);
 	KHook::Return<bool> Hook_ClientConnect(IServerGameClients *pThis, CPlayerSlot slot, const char *pszName, uint64 steamID64, const char *pszNetworkID, bool unk1, CBufferString *pRejectReason);
-	KHook::Return<void> Hook_ClientDisconnect(IServerGameClients *pThis, CPlayerSlot slot, ENetworkDisconnectionReason reason, const char *pszName, uint64 steamID64, const char *pszNetworkID);
-	KHook::Return<void> Hook_ClientActive(IServerGameClients *pThis, CPlayerSlot slot, bool bLoadGame, const char *pszName, uint64 steamID64);
-	KHook::Return<void> Hook_GameFrame(IServerGameDLL *pThis, bool simulating, bool bFirstTick, bool bLastTick);
+	KHook::Return<void> Hook_ClientDisconnect_Post(IServerGameClients *pThis, CPlayerSlot slot, ENetworkDisconnectionReason reason, const char *pszName, uint64 steamID64, const char *pszNetworkID);
+	KHook::Return<void> Hook_ClientActive_Post(IServerGameClients *pThis, CPlayerSlot slot, bool bLoadGame, const char *pszName, uint64 steamID64);
+	KHook::Return<void> Hook_GameFrame_Post(IServerGameDLL *pThis, bool simulating, bool bFirstTick, bool bLastTick);
 	KHook::Return<bool> Hook_FireEvent(IGameEventManager2 *pThis, IGameEvent *event, bool bDontBroadcast = false);
 	KHook::Return<bool> Hook_CanHLTVClientConnect(IServerGameClients *pThis, int index, const CSteamID &steamID, int *pRejectReason);
-	KHook::Return<bool> Hook_SendNetMessage_ServerSideClient(CServerSideClientBase *pClient, const CNetMessage *pData, NetChannelBufType_t bufType);
-	KHook::Return<bool> Hook_SendNetMessage_HLTVClient(CServerSideClientBase *pClient, const CNetMessage *pData, NetChannelBufType_t bufType);
+	KHook::Return<bool> Hook_SendNetMessage(CServerSideClientBase *pClient, const CNetMessage *pData, NetChannelBufType_t bufType);
 	KHook::Return<void> Hook_SetPendingHostStateRequest(CHostStateMgr *pMgrDoNotUse, CHostStateRequest *pRequest);
 	KHook::Return<void> Hook_ReplyConnection(INetworkGameServer *pThis, CServerSideClient *pClient);
 	KHook::Return<uint64> Hook_ScriptGetAddon();
@@ -96,14 +100,14 @@ public: //hooks
 	void AddTimedOutClient(uint64 steamID64) { m_TimedOutClients.insert(steamID64); }
 
 public:
-	const char *GetAuthor() override		{ return "xen"; }
-	const char *GetName() override			{ return "MultiAddonManager"; }
-	const char *GetDescription() override	{ return "Multi Addon Manager"; }
-	const char *GetURL() override			{ return "https://github.com/Source2ZE/MultiAddonManager"; }
-	const char *GetLicense() override		{ return "GPL v3 License"; }
-	const char *GetVersion() override		{ return MULTIADDONMANAGER_VERSION; }  // defined by the build script
+	const char *GetAuthor() override		{ return PLUGIN_AUTHOR; }
+	const char *GetName() override			{ return PLUGIN_DISPLAY_NAME; }
+	const char *GetDescription() override	{ return PLUGIN_DESCRIPTION; }
+	const char *GetURL() override			{ return PLUGIN_URL; }
+	const char *GetLicense() override		{ return PLUGIN_LICENSE; }
+	const char *GetVersion() override		{ return PLUGIN_FULL_VERSION; }
 	const char *GetDate() override			{ return __DATE__; }
-	const char *GetLogTag() override		{ return "MultiAddonManager"; }
+	const char *GetLogTag() override		{ return PLUGIN_LOGTAG; }
 
 	CUtlVector<std::string> m_ExtraAddons;
 
