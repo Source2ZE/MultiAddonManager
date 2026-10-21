@@ -233,8 +233,8 @@ MultiAddonManager::MultiAddonManager() :
 	m_hookClientDisconnect(&IServerGameClients::ClientDisconnect, this, nullptr, &MultiAddonManager::Hook_ClientDisconnect_Post),
 	m_hookClientActive(&IServerGameClients::ClientActive, this, nullptr, &MultiAddonManager::Hook_ClientActive_Post),
 	m_hookFireEvent(&IGameEventManager2::FireEvent, this, &MultiAddonManager::Hook_FireEvent, nullptr),
-	m_hookSendNetMessage_ServerSideClient(&CServerSideClientBase::SendNetMessage, this, &MultiAddonManager::Hook_SendNetMessage_ServerSideClient, nullptr),
-	m_hookSendNetMessage_HLTVClient(&CServerSideClientBase::SendNetMessage, this, &MultiAddonManager::Hook_SendNetMessage_HLTVClient, nullptr),
+	m_hookSendNetMessage_ServerSideClient(&CServerSideClientBase::SendNetMessage, this, &MultiAddonManager::Hook_SendNetMessage, nullptr),
+	m_hookSendNetMessage_HLTVClient(&CServerSideClientBase::SendNetMessage, this, &MultiAddonManager::Hook_SendNetMessage, nullptr),
 	m_hookSetPendingHostStateRequest(this, &MultiAddonManager::Hook_SetPendingHostStateRequest, nullptr),
 	m_hookReplyConnection(this, &MultiAddonManager::Hook_ReplyConnection, nullptr),
 	m_hookScriptGetAddon(this, &MultiAddonManager::Hook_ScriptGetAddon, nullptr)
@@ -963,24 +963,24 @@ KHook::Return<void> MultiAddonManager::Hook_StartupServer_Post(INetworkServerSer
 	return {KHook::Action::Ignore};
 }
 
-bool Hook_SendNetMessage(CServerSideClientBase *pClient, const CNetMessage *pData, NetChannelBufType_t bufType, SendNetMessage_t pOriginalFunc)
+KHook::Return<bool> MultiAddonManager::Hook_SendNetMessage(CServerSideClientBase *pClient, const CNetMessage *pData, NetChannelBufType_t bufType)
 {
-	NetMessageInfo_t *info = pData->GetNetMessage()->GetNetMessageInfo();
-	
+	NetMessageInfo_t* info = pData->GetNetMessage()->GetNetMessageInfo();
+
 	uint64 steamID64 = pClient->GetClientSteamID().ConvertToUint64();
-	ClientAddonInfo_t &clientInfo = g_ClientAddons[steamID64];
-	
+	ClientAddonInfo_t& clientInfo = g_ClientAddons[steamID64];
+
 	// If we are sending a message to the client, that means the client is still active.
 	clientInfo.lastActiveTime = Plat_FloatTime();
 
 	if (info->m_MessageId != net_SignonState || !g_pEngineServer->IsDedicatedServer())
-		return pOriginalFunc(pClient, pData, bufType);
+		return {KHook::Action::Ignore};
 
 	auto pMsg = const_cast<CNetMessage*>(pData)->ToPB<CNETMsg_SignonState>();
 
 	CUtlVector<std::string> addons;
 	g_MultiAddonManager.GetClientAddons(addons, steamID64);
-	
+
 	if (pMsg->signon_state() == SIGNONSTATE_CHANGELEVEL)
 	{
 		// When switching to another map, the signon message might contain more than 1 addon.
@@ -999,19 +999,17 @@ bool Hook_SendNetMessage(CServerSideClientBase *pClient, const CNetMessage *pDat
 			// Nothing to do here, the rest of the required addons can be sent later.
 			clientInfo.currentPendingAddon = pMsg->addons();
 		}
-		
-		return pOriginalFunc(pClient, pData, bufType);
+
+		return {KHook::Action::Ignore};
 	}
 	FOR_EACH_VEC(clientInfo.downloadedAddons, i)
 	{
 		addons.FindAndRemove(clientInfo.downloadedAddons[i]);
 	}
-	
+
 	// Check if client has downloaded everything.
 	if (addons.Count() == 0)
-	{
-		return pOriginalFunc(pClient, pData, bufType);
-	}
+		return { KHook::Action::Ignore };
 
 	if (mm_addon_debug.Get())
 		Message("%s: Number of addons remaining to download for %lli: %d\n", __func__, steamID64, addons.Count());
@@ -1021,17 +1019,7 @@ bool Hook_SendNetMessage(CServerSideClientBase *pClient, const CNetMessage *pDat
 	pMsg->set_addons(addons.Head().c_str());
 	pMsg->set_signon_state(SIGNONSTATE_CHANGELEVEL);
 
-	return pOriginalFunc(pClient, pData, bufType);
-}
-
-KHook::Return<bool> MultiAddonManager::Hook_SendNetMessage_ServerSideClient(CServerSideClientBase *pClient, const CNetMessage *pData, NetChannelBufType_t bufType)
-{
-	return {KHook::Action::Supersede, Hook_SendNetMessage(pClient, pData, bufType, (SendNetMessage_t)KHook::GetOriginalFunction())};
-}
-
-KHook::Return<bool> MultiAddonManager::Hook_SendNetMessage_HLTVClient(CServerSideClientBase *pClient, const CNetMessage *pData, NetChannelBufType_t bufType)
-{
-	return {KHook::Action::Supersede, Hook_SendNetMessage(pClient, pData, bufType, (SendNetMessage_t)KHook::GetOriginalFunction())};
+	return {KHook::Action::Ignore};
 }
 
 // pMgrDoNotUse is named as such because the variable is optimized out in Windows builds and will not be passed to the function.
