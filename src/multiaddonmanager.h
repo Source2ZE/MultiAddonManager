@@ -189,13 +189,16 @@ private:
 	KHook::Function<uint64> m_hookScriptGetAddon;
 
 	std::vector<AddonId> m_ImportantDownloads; // Important addon downloads that will trigger a map reload when finished
-	struct PendingDownload_t
+	struct AddonDownloadInfo_t
 	{
+		bool operator==(const AddonDownloadInfo_t& other) const { return addon == other.addon; }
+		bool operator==(const AddonId& other) const { return addon == other; }
+
 		AddonId addon;
 		bool bImportant;
 		bool bForce;
 	};
-	std::vector<PendingDownload_t> m_PendingDownloads; // Downloads that failed to start because the server wasn't logged on to Steam yet
+	std::vector<AddonDownloadInfo_t> m_PreSteamLoginDownloads; // Downloads that failed to start because the server wasn't logged on to Steam yet
 	std::deque<AddonId> m_DownloadQueue; // Queue of all addon downloads to print progress
 
 	STEAM_GAMESERVER_CALLBACK_MANUAL(MultiAddonManager, OnAddonDownloaded, DownloadItemResult_t, m_CallbackDownloadItemResult);

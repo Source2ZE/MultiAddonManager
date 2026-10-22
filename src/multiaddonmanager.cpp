@@ -559,13 +559,10 @@ bool MultiAddonManager::DownloadAddon(const char *pszAddon, bool bImportant, boo
 		Panic("%s: Addon download for %s failed to start, addon ID is invalid or server is not logged on Steam\n", __func__, pszAddon);
 
 		// Most likely the server hasn't logged on to Steam yet, retry once it does (see OnSteamServersConnected)
-		bool bPending = false;
-		for (const auto &pending : m_PendingDownloads)
-			if (pending.addon == addon)
-				bPending = true;
+		AddonDownloadInfo_t pending = { addon, bImportant, bForce };
 
-		if (!bPending)
-			m_PendingDownloads.push_back({addon, bImportant, bForce});
+		if (!Contains(m_PreSteamLoginDownloads, pending))
+			m_PreSteamLoginDownloads.push_back(pending);
 
 		return false;
 	}
@@ -583,17 +580,17 @@ bool MultiAddonManager::DownloadAddon(const char *pszAddon, bool bImportant, boo
 // Downloads requested before the server logged on to Steam fail to start, so retry them now
 void MultiAddonManager::OnSteamServersConnected(SteamServersConnected_t *pResult)
 {
-	if (m_PendingDownloads.empty())
+	RefreshAddons();
+
+	if (m_PreSteamLoginDownloads.empty())
 		return;
 
-	// Failures get queued again, so work on a copy
-	std::vector<PendingDownload_t> pending;
-	pending.swap(m_PendingDownloads);
+	Message("Logged on to Steam, retrying %i pending addon download(s)\n", m_PreSteamLoginDownloads.size());
 
-	Message("Logged on to Steam, retrying %i pending addon download(s)\n", (int)pending.size());
-
-	for (const auto &download : pending)
+	for (const auto &download : m_PreSteamLoginDownloads)
 		DownloadAddon(download.addon.c_str(), download.bImportant, download.bForce);
+
+	m_PreSteamLoginDownloads.clear();
 }
 
 void MultiAddonManager::RefreshAddons(bool bReloadMap)
@@ -668,6 +665,8 @@ void MultiAddonManager::OnAddonDownloaded(DownloadItemResult_t *pResult)
 	else
 		Panic("Addon %s download failed with reason \"%s\" (%i)\n", addon.c_str(), g_SteamErrorMessages[pResult->m_eResult], pResult->m_eResult);
 
+	RemoveValue(m_PreSteamLoginDownloads, addon);
+
 	// This download isn't triggered by us, don't do anything
 	if (!Contains(m_DownloadQueue, addon))
 		return;
@@ -679,7 +678,7 @@ void MultiAddonManager::OnAddonDownloaded(DownloadItemResult_t *pResult)
 	// That was the last important download, now reload the map
 	if (bFound && m_ImportantDownloads.empty())
 	{
-		Message("All addon downloads finished, reloading map %s\n", GetGlobals()->mapname);
+		Message("All addon downloads finished, reloading map\n");
 		ReloadMap();
 	}
 }
