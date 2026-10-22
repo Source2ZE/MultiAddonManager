@@ -648,9 +648,17 @@ void MultiAddonManager::OnAddonDownloaded(DownloadItemResult_t *pResult)
 	const AddonId addon(pResult->m_nPublishedFileId);
 
 	if (pResult->m_eResult == k_EResultOK)
+	{
 		Message("Addon %s downloaded successfully\n", addon.c_str());
+	}
 	else
-		Panic("Addon %s download failed with reason \"%s\" (%i)\n", addon.c_str(), g_SteamErrorMessages[pResult->m_eResult], pResult->m_eResult);
+	{
+		// Steam may add more errors
+		static const int iNumMessages = ARRAYSIZE(g_SteamErrorMessages);
+		const char *pszReason = pResult->m_eResult < iNumMessages ? g_SteamErrorMessages[pResult->m_eResult] : "Unknown error";
+
+		Panic("Addon %s download failed with reason \"%s\" (%i)\n", addon.c_str(), pszReason, pResult->m_eResult);
+	}
 
 	RemoveValue(m_PreSteamLoginDownloads, addon);
 

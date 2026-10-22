@@ -346,5 +346,9 @@ constexpr const char* g_SteamErrorMessages[] =
 	"User device doesn't have enough battery charge currently to complete the action",
 	"The operation requires a charger to be plugged in, which wasn't present",
 	"Cached credential was invalid - user must reauthenticate",
-	"The phone number provided is a Voice Over IP number"
+	"The phone number provided is a Voice Over IP number",
+	"The data being accessed is not supported by this API",
+	"Reached the maximum size of the family",
+	"The local data for the offline mode cache is insufficient to login",
+	"Retry the operation later",
 };
