@@ -80,7 +80,12 @@ void StringToVector(const char *pszString, std::vector<AddonId> &vector)
 	while (std::getline(stream, token, ','))
 	{
 		if (!token.empty())
+		{
+			for (auto it = token.begin(); it < token.end(); it++)
+				if (std::isspace(*it)) token.erase(it);
+
 			vector.emplace_back(token);
+		}
 	}
 }
 
@@ -369,7 +374,7 @@ void *MultiAddonManager::OnMetamodQuery(const char *iface, int *ret)
 	return static_cast<IMultiAddonManager*>(&g_MultiAddonManager);
 }
 
-void MultiAddonManager::ParseCfg()
+bool MultiAddonManager::ParseCfg()
 {
 	char szPath[MAX_PATH];
 	V_snprintf(szPath, sizeof(szPath), "%s/csgo/cfg/multiaddonmanager/multiaddonmanager.cfg", Plat_GetGameDirectory());
@@ -377,22 +382,48 @@ void MultiAddonManager::ParseCfg()
 
 	if (!cfgFile.is_open())
 	{
-		Message("Unable to open & execute custom cfg file \"multiaddonmanager/multiaddonmanager\"\n");
-		return;
+		Panic("Unable to open & execute config at \"%s\"\n");
+		return false;
 	}
 
-	Message("Executing custom cfg file \"multiaddonmanager/multiaddonmanager\"\n");
+	Message("Executing config\n");
 
 	std::string strCommand;
+	bool bChangedAddons = false;
 
 	while (std::getline(cfgFile, strCommand))
 	{
 		if (!strCommand.empty() && strCommand.back() == '\r')
 			strCommand.pop_back();
 
-		if (!strCommand.empty())
-			g_pEngineServer->ServerCommand(strCommand.c_str());
+		CCommand args;
+		if (!args.Tokenize(strCommand.c_str()))
+			continue;
+
+		const char* pszCommand = args.Arg(0);
+
+		ConVarRefAbstract cvarRef(pszCommand, true);
+		if (cvarRef.IsValidRef())
+		{
+			// We're running this in StartupServer now, and mm_extra_addons's callback calls RefreshAddons
+			// Relay that back to StartupServer to skip refreshing a second time
+			// Normally this would be unconditional but you never know if someone does a typo in their cfg...
+			if (cvarRef.GetConVarData() == mm_extra_addons.GetConVarData())
+				bChangedAddons = true;
+
+			cvarRef.SetString(args.Arg(1));
+			continue;
+		}
+
+		ConCommandRef cmdRef(pszCommand, true);
+		if (cmdRef.IsValidRef())
+		{
+			CCommandContext ctx(CT_FIRST_SPLITSCREEN_CLIENT, -1);
+			cmdRef.Dispatch(ctx, args);
+		}
 	}
+
+	return bChangedAddons;
 }
 
 void MultiAddonManager::BuildAddonPath(const char *pszAddon, char *buf, size_t len, bool bLegacy = false)
@@ -958,7 +989,8 @@ KHook::Return<void> MultiAddonManager::Hook_StartupServer_Post(INetworkServerSer
 	// This has to be done here to replicate the behavior on clients, where they mount addons in the string order
 	// So if the current map is ID 1 and extra addons are IDs 2 and 3, they would be mounted in that order with ID 3 at the top
 	// Note that the actual map VPK(s) and any sub-maps like team_select will be even higher, but those usually don't contain any assets that concern us
-	RefreshAddons();
+	if (!ParseCfg())
+		RefreshAddons();
 
 	return {KHook::Action::Ignore};
 }
