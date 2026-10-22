@@ -203,6 +203,9 @@ private:
 
 	STEAM_GAMESERVER_CALLBACK_MANUAL(MultiAddonManager, OnAddonDownloaded, DownloadItemResult_t, m_CallbackDownloadItemResult);
 	STEAM_GAMESERVER_CALLBACK_MANUAL(MultiAddonManager, OnSteamServersConnected, SteamServersConnected_t, m_CallbackSteamServersConnected);
+
+	bool m_bSteamConnected = false;
+
 	// Used when reloading current map
 	AddonId m_sCurrentWorkshopMap;
 

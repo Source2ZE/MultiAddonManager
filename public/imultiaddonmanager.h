@@ -45,7 +45,7 @@ public:
 	// Clear the internal list and unmount all addons excluding the current workshop map
 	virtual void ClearAddons() = 0;
 	
-	// Check whether the server is connected to the game coordinator, and therefore is capable of downloading addons.
+	// Check whether the server is connected to Steam UGC, and therefore is capable of downloading addons.
 	// Should be called before calling DownloadAddon.
 	virtual bool HasUGCConnection() = 0;
 	

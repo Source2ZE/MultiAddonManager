@@ -108,6 +108,12 @@ ISteamUGC *GetSteamUGC()
 }
 
 // Will return null between map end & new map startup, null check if necessary!
+INetworkGameServer* GetNetworkGameServer()
+{
+	return g_pNetworkServerService->GetIGameServer();
+}
+
+// Will return null between map end & new map startup, null check if necessary!
 CGlobalVars* GetGlobals()
 {
 	return g_pEngineServer->GetServerGlobals();
@@ -178,27 +184,10 @@ std::unordered_map<uint64, ClientAddonInfo_t> g_ClientAddons;
 
 CUtlVector<CServerSideClient *> *GetClientList()
 {
-	if (!g_pNetworkServerService)
+	if (!GetNetworkGameServer())
 		return nullptr;
 
-	return (CUtlVector<CServerSideClient *> *)((char *)g_pNetworkServerService->GetIGameServer() + g_iClientListOffset);
-}
-
-static CServerSideClient *FindClientBySteamID(uint64 steamID64)
-{
-	CUtlVector<CServerSideClient *> *clients = GetClientList();
-	if (!clients)
-		return nullptr;
-
-	CUtlVector<CServerSideClient *> &clientList = *clients;
-	FOR_EACH_VEC(clientList, i)
-	{
-		CServerSideClient *client = clientList[i];
-		if (client && client->GetClientSteamID().ConvertToUint64() == steamID64)
-			return client;
-	}
-
-	return nullptr;
+	return (CUtlVector<CServerSideClient *> *)((char *)GetNetworkGameServer() + g_iClientListOffset);
 }
 
 CConVar<CUtlString> mm_extra_addons("mm_extra_addons", FCVAR_NONE, "The workshop IDs of extra addons separated by commas, addons will be downloaded (if not present) and mounted", CUtlString(""),
@@ -347,6 +336,9 @@ bool MultiAddonManager::Unload(char *error, size_t maxlen)
 {
 	ClearAddons();
 
+	m_CallbackDownloadItemResult.Unregister();
+	m_CallbackSteamServersConnected.Unregister();
+
 	m_hookClientConnect.Remove(g_pSource2GameClients);
 	m_hookCanHLTVClientConnect.Remove(g_pSource2GameClients);
 	m_hookClientDisconnect.Remove(g_pSource2GameClients);
@@ -428,12 +420,6 @@ bool MultiAddonManager::MountAddon(const char *pszAddon, bool bAddToTail = false
 	const AddonId addon(pszAddon);
 	uint32 iAddonState = GetSteamUGC()->GetItemState(addon);
 
-	if (iAddonState & k_EItemStateLegacyItem)
-	{
-		Message("%s: Addon %s is not compatible with Source 2, skipping\n", __func__, pszAddon);
-		return false;
-	}
-
 	if (!(iAddonState & k_EItemStateInstalled))
 	{
 		Message("%s: Addon %s is not installed, queuing a download\n", __func__, pszAddon);
@@ -486,7 +472,7 @@ bool MultiAddonManager::UnmountAddon(const char *pszAddon)
 		return false;
 
 	char path[MAX_PATH];
-	BuildAddonPath(pszAddon, path, sizeof(path));
+	BuildAddonPath(pszAddon, path, sizeof(path), true); // We always mount without _dir
 
 	if (!g_pFullFileSystem->RemoveSearchPath(path, "GAME"))
 		return false;
@@ -580,6 +566,7 @@ bool MultiAddonManager::DownloadAddon(const char *pszAddon, bool bImportant, boo
 // Downloads requested before the server logged on to Steam fail to start, so retry them now
 void MultiAddonManager::OnSteamServersConnected(SteamServersConnected_t *pResult)
 {
+	m_bSteamConnected = true;
 	RefreshAddons();
 
 	if (m_PreSteamLoginDownloads.empty())
@@ -671,7 +658,7 @@ void MultiAddonManager::OnAddonDownloaded(DownloadItemResult_t *pResult)
 	if (!Contains(m_DownloadQueue, addon))
 		return;
 
-	m_DownloadQueue.pop_front();
+	RemoveValue(m_DownloadQueue, addon);
 	
 	bool bFound = RemoveValue(m_ImportantDownloads, addon);
 	
@@ -698,7 +685,7 @@ bool MultiAddonManager::AddAddon(const char *pszAddon, bool bRefresh)
 	// Update the convar to reflect the new addon list, but don't trigger the callback
 	mm_extra_addons.GetConVarData()->Value(0)->m_StringValue = VectorToString(m_ExtraAddons).c_str();
 
-	Message("Clearing client cache due to addons changing");
+	Message("Clearing client cache due to addons changing\n");
 
 	if (bRefresh)
 		RefreshAddons();
@@ -737,13 +724,11 @@ CNetMessagePB<CNETMsg_SignonState> *GetAddonSignonStateMessage(const char *pszAd
 	pMsg->set_spawn_count(GetGlobals()->serverCount);
 	pMsg->set_signon_state(SIGNONSTATE_CHANGELEVEL);
 	pMsg->set_addons(pszAddon ? pszAddon : "");
-	pMsg->set_num_server_players(GetClientList()->Count());
-	for (int i = 0; i < GetClientList()->Count(); i++)
+	auto pClientList = GetClientList();
+	pMsg->set_num_server_players(pClientList->Count());
+	for (auto pClient : *pClientList)
 	{
-		auto client = GetClientList()->Element(i);
-
-		char const *szNetworkId = g_pEngineServer->GetPlayerNetworkIDString(client->GetPlayerSlot());
-
+		char const *szNetworkId = g_pEngineServer->GetPlayerNetworkIDString(pClient->GetPlayerSlot());
 		pMsg->add_players_networkids(szNetworkId);
 	}
 
@@ -752,7 +737,7 @@ CNetMessagePB<CNETMsg_SignonState> *GetAddonSignonStateMessage(const char *pszAd
 
 bool MultiAddonManager::HasUGCConnection()
 {
-	return GetSteamUGC() != nullptr;
+	return GetSteamUGC() != nullptr && m_bSteamConnected;
 }
 
 void MultiAddonManager::AddClientAddon(const char *pszAddon, uint64 steamID64, bool bRefresh)
@@ -782,16 +767,14 @@ void MultiAddonManager::AddClientAddon(const char *pszAddon, uint64 steamID64, b
 	
 	if (bRefresh)
 	{
-		CUtlVector<CServerSideClient*> &clients = *GetClientList();
 		auto pMsg = GetAddonSignonStateMessage(pszAddon);
 		if (!pMsg)
 		{
 			Panic("Failed to create signon state message for %s\n", pszAddon);
 			return;
 		}
-		FOR_EACH_VEC(clients, i)
+		for (auto pClient : *GetClientList())
 		{
-			CServerSideClient *pClient = clients[i];
 			if (steamID64 == 0 || pClient->GetClientSteamID().ConvertToUint64() == steamID64)
 			{
 				// Client is already loading, telling them to reload now will actually just disconnect them. ("Received signon %i when at %i\n" in client console)
@@ -1151,12 +1134,8 @@ KHook::Return<void> MultiAddonManager::Hook_GameFrame_Post(IServerGameDLL *pThis
 	if (!m_TimedOutClients.size())
 		return {KHook::Action::Ignore};
 
-	auto pClients = GetClientList();
-
-	FOR_EACH_VEC(*pClients, i)
+	for (auto pClient : *GetClientList())
 	{
-		auto pClient = (*pClients)[i];
-
 		uint64 steamID64 = pClient->GetClientSteamID().ConvertToUint64();
 
 		if (m_TimedOutClients.erase(steamID64))
