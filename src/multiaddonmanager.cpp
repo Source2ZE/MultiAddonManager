@@ -216,7 +216,6 @@ PLUGIN_EXPOSE(MultiAddonManager, g_MultiAddonManager);
 
 MultiAddonManager::MultiAddonManager() :
 	m_hookGameFrame(&IServerGameDLL::GameFrame, this, nullptr, &MultiAddonManager::Hook_GameFrame_Post),
-	m_hookGameServerSteamAPIActivated(&IServerGameDLL::GameServerSteamAPIActivated, this, &MultiAddonManager::Hook_GameServerSteamAPIActivated, nullptr),
 	m_hookStartupServer(&INetworkServerService::StartupServer, this, nullptr, &MultiAddonManager::Hook_StartupServer_Post),
 	m_hookClientConnect(&IServerGameClients::ClientConnect, this, &MultiAddonManager::Hook_ClientConnect, nullptr),
 	m_hookCanHLTVClientConnect(&IServerGameClients::CanHLTVClientConnect, this, &MultiAddonManager::Hook_CanHLTVClientConnect, nullptr),
@@ -310,14 +309,13 @@ bool MultiAddonManager::Load(PluginId id, ISmmAPI *ismm, char *error, size_t max
 	m_hookCanHLTVClientConnect.Add(g_pSource2GameClients);
 	m_hookClientDisconnect.Add(g_pSource2GameClients);
 	m_hookClientActive.Add(g_pSource2GameClients);
-	m_hookGameServerSteamAPIActivated.Add(g_pSource2Server);
 	m_hookGameFrame.Add(g_pSource2Server);
 	m_hookStartupServer.Add(g_pNetworkServerService);
 	m_hookFireEvent.AddGlobal((IGameEventManager2*)&g_pGameEventManagerVTable);
 	m_hookSendNetMessage_ServerSideClient.AddGlobal((CServerSideClientBase*)&g_pServerSideClientVTable);
 	m_hookSendNetMessage_HLTVClient.AddGlobal((CServerSideClientBase*)&g_pHLTVClientVTable);
 
-	if (late && g_pEngineServer->IsDedicatedServer())
+	if (g_pEngineServer->IsDedicatedServer())
 	{
 		m_CallbackDownloadItemResult.Register(this, &MultiAddonManager::OnAddonDownloaded);
 		m_CallbackSteamServersConnected.Register(this, &MultiAddonManager::OnSteamServersConnected);
@@ -343,7 +341,6 @@ bool MultiAddonManager::Unload(char *error, size_t maxlen)
 	m_hookCanHLTVClientConnect.Remove(g_pSource2GameClients);
 	m_hookClientDisconnect.Remove(g_pSource2GameClients);
 	m_hookClientActive.Remove(g_pSource2GameClients);
-	m_hookGameServerSteamAPIActivated.Remove(g_pSource2Server);
 	m_hookGameFrame.Remove(g_pSource2Server);
 	m_hookStartupServer.Remove(g_pNetworkServerService);
 	m_hookFireEvent.RemoveGlobal((IGameEventManager2*)&g_pGameEventManagerVTable);
@@ -589,16 +586,18 @@ bool MultiAddonManager::DownloadAddon(const char *pszAddon, bool bImportant, boo
 	return true;
 }
 
-// Downloads requested before the server logged on to Steam fail to start, so retry them now
 void MultiAddonManager::OnSteamServersConnected(SteamServersConnected_t *pResult)
 {
+	Message("Logged on to Steam\n");
+
 	m_bSteamConnected = true;
 	RefreshAddons();
 
 	if (m_PreSteamLoginDownloads.empty())
 		return;
 
-	Message("Logged on to Steam, retrying %i pending addon download(s)\n", m_PreSteamLoginDownloads.size());
+	// Downloads requested before the server logged on to Steam fail to start, so retry them now
+	Message("Retrying %i pending addon download(s)\n", m_PreSteamLoginDownloads.size());
 
 	for (const auto &download : m_PreSteamLoginDownloads)
 		DownloadAddon(download.addon.c_str(), download.bImportant, download.bForce);
@@ -638,20 +637,6 @@ void MultiAddonManager::ClearAddons()
 	
 	for (const auto& addon : m_MountedAddons)
 		UnmountAddon(addon);
-}
-
-KHook::Return<void> MultiAddonManager::Hook_GameServerSteamAPIActivated(IServerGameDLL *pThis)
-{
-	// This is only intended for dedicated servers
-	if (!g_pEngineServer->IsDedicatedServer())
-		return {KHook::Action::Ignore};
-
-	Message("Steam API Activated\n");
-
-	m_CallbackDownloadItemResult.Register(this, &MultiAddonManager::OnAddonDownloaded);
-	m_CallbackSteamServersConnected.Register(this, &MultiAddonManager::OnSteamServersConnected);
-
-	return {KHook::Action::Ignore};
 }
 
 void MultiAddonManager::ReloadMap()

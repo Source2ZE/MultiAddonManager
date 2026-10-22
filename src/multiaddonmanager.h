@@ -118,7 +118,6 @@ public:
 	bool Unload(char *error, size_t maxlen);
 	void *OnMetamodQuery(const char *iface, int *ret);
 public: //hooks
-	KHook::Return<void> Hook_GameServerSteamAPIActivated(IServerGameDLL *pThis);
 	KHook::Return<void> Hook_StartupServer_Post(INetworkServerService *pThis, const GameSessionConfiguration_t &config, ISource2WorldSession *, const char *);
 	KHook::Return<bool> Hook_ClientConnect(IServerGameClients *pThis, CPlayerSlot slot, const char *pszName, uint64 steamID64, const char *pszNetworkID, bool unk1, CBufferString *pRejectReason);
 	KHook::Return<void> Hook_ClientDisconnect_Post(IServerGameClients *pThis, CPlayerSlot slot, ENetworkDisconnectionReason reason, const char *pszName, uint64 steamID64, const char *pszNetworkID);
@@ -176,7 +175,6 @@ public:
 
 private:
 	KHook::Virtual<IServerGameDLL, void, bool, bool, bool> m_hookGameFrame;
-	KHook::Virtual<IServerGameDLL, void> m_hookGameServerSteamAPIActivated;
 	KHook::Virtual<INetworkServerService, void, const GameSessionConfiguration_t &, ISource2WorldSession *, const char *> m_hookStartupServer;
 	KHook::Virtual<IServerGameClients, bool, CPlayerSlot, const char *, uint64, const char *, bool, CBufferString *> m_hookClientConnect;
 	KHook::Virtual<IServerGameClients, bool, int, const CSteamID &, int *> m_hookCanHLTVClientConnect;
