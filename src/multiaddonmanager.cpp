@@ -783,35 +783,49 @@ void MultiAddonManager::AddClientAddon(const char *pszAddon, uint64 steamID64, b
 		}
 		for (auto pClient : *GetClientList())
 		{
-			if (steamID64 == 0 || pClient->GetClientSteamID().ConvertToUint64() == steamID64)
+			uint64 clientSteamId = pClient->GetClientSteamID().ConvertToUint64();
+
+			if (steamID64 != 0 && clientSteamId != steamID64)
+				continue;
+
+			// Client is already loading, telling them to reload now will actually just disconnect them. ("Received signon %i when at %i\n" in client console)
+			if (pClient->GetSignonState() == SIGNONSTATE_CHANGELEVEL)
 			{
-				// Client is already loading, telling them to reload now will actually just disconnect them. ("Received signon %i when at %i\n" in client console)
-				if (pClient->GetSignonState() == SIGNONSTATE_CHANGELEVEL)
-					break;
-				// Client still has addons to load anyway, they don't need to be told to reload
-				if (!g_ClientAddons[steamID64].currentPendingAddon.empty())
-					break;
-				ClientAddonInfo_t &clientInfo = g_ClientAddons[steamID64];
-
-				std::vector<AddonId> addons;
-				GetClientAddons(addons, steamID64);
-				
-				for (const auto &downloaded : clientInfo.downloadedAddons)
-					RemoveValue(addons, downloaded);
-
-				if (addons.empty())
-				{
-					break;
-				}
-				clientInfo.currentPendingAddon = addons.front();
-				
-				pClient->GetNetChannel()->SendNetMessage(pMsg, BUF_RELIABLE);
-
 				if (steamID64)
-				{
 					break;
-				}
+
+				continue;
 			}
+			// Client still has addons to load anyway, they don't need to be told to reload
+			if (!g_ClientAddons[clientSteamId].currentPendingAddon.empty())
+			{
+				if (steamID64)
+					break;
+
+				continue;
+			}
+			ClientAddonInfo_t &clientInfo = g_ClientAddons[clientSteamId];
+
+			std::vector<AddonId> addons;
+			GetClientAddons(addons, clientSteamId);
+
+			for (const auto &downloaded : clientInfo.downloadedAddons)
+				RemoveValue(addons, downloaded);
+
+			if (addons.empty())
+			{
+				if (steamID64)
+					break;
+
+				continue;
+			}
+
+			clientInfo.currentPendingAddon = addons.front();
+
+			pClient->GetNetChannel()->SendNetMessage(pMsg, BUF_RELIABLE);
+
+			if (steamID64)
+				break;
 		}
 		delete pMsg;
 	}
