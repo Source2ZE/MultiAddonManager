@@ -135,7 +135,7 @@ constexpr const char *g_ReplyConnection_Sig = "48 8B C4 55 41 55 41 56";
 constexpr const char *g_ScriptGetAddon_Sig = "40 56 48 83 EC ? 48 8B 0D ? ? ? ? 48 8D 54 24";
 #else
 constexpr const char *g_HostStateRequest_Sig = "55 48 89 E5 41 56 41 55 41 54 49 89 F4 53 48 83 7F";
-constexpr const char *g_ReplyConnection_Sig = "55 B9 ? ? ? ? 41 B8";
+constexpr const char *g_ReplyConnection_Sig = "55 B9 ? ? ? ? 41 B8 ? ? ? ? 48 89 E5";
 constexpr const char *g_ScriptGetAddon_Sig = "55 48 89 E5 41 55 41 54 48 8D 75 ? 53 48 83 EC ? 48 8D 05 ? ? ? ? 48 C7 45 ? ? ? ? ? 48 C7 45 ? ? ? ? ? 48 8B 38 48 8B 07 FF 90 ? ? ? ? 8B 55";
 #endif
 
