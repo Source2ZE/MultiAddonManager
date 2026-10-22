@@ -124,11 +124,6 @@ CGlobalVars* GetGlobals()
 	return g_pEngineServer->GetServerGlobals();
 }
 
-typedef bool (FASTCALL *SendNetMessage_t)(CServerSideClientBase *, const CNetMessage*, NetChannelBufType_t);
-typedef void (FASTCALL *HostStateRequest_t)(CHostStateMgr*, CHostStateRequest*);
-typedef void (FASTCALL *ReplyConnection_t)(INetworkGameServer *, CServerSideClient *);
-typedef uint64 (FASTCALL *ScriptGetAddon_t)();
-
 // Signatures
 
 // "Discarding pending request '%s, %u'\n"
@@ -257,7 +252,7 @@ bool MultiAddonManager::Load(PluginId id, ISmmAPI *ismm, char *error, size_t max
 
 	bool g_bRequiredInitLoaded = true;
 
-	auto pfnSetPendingHostStateRequest = (HostStateRequest_t)engineModule.LookupSignature(g_HostStateRequest_Sig);
+	auto pfnSetPendingHostStateRequest = engineModule.LookupSignature(g_HostStateRequest_Sig);
 
 	if (!pfnSetPendingHostStateRequest)
 	{
@@ -267,7 +262,7 @@ bool MultiAddonManager::Load(PluginId id, ISmmAPI *ismm, char *error, size_t max
 
 	m_hookSetPendingHostStateRequest.Configure(pfnSetPendingHostStateRequest);
 
-	auto pfnReplyConnection = (ReplyConnection_t)engineModule.LookupSignature(g_ReplyConnection_Sig);
+	auto pfnReplyConnection = engineModule.LookupSignature(g_ReplyConnection_Sig);
 
 	if (!pfnReplyConnection)
 	{
@@ -277,7 +272,7 @@ bool MultiAddonManager::Load(PluginId id, ISmmAPI *ismm, char *error, size_t max
 
 	m_hookReplyConnection.Configure(pfnReplyConnection);
 	
-	auto pfnScriptGetAddon = (ScriptGetAddon_t)serverModule.LookupSignature(g_ScriptGetAddon_Sig);
+	auto pfnScriptGetAddon = serverModule.LookupSignature(g_ScriptGetAddon_Sig);
 
 	if (!pfnScriptGetAddon)
 	{
