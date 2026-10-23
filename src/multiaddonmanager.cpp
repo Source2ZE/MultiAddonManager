@@ -366,7 +366,7 @@ void *MultiAddonManager::OnMetamodQuery(const char *iface, int *ret)
 	return static_cast<IMultiAddonManager*>(&g_MultiAddonManager);
 }
 
-bool MultiAddonManager::ParseCfg()
+void MultiAddonManager::ParseCfg()
 {
 	char szPath[MAX_PATH];
 	V_snprintf(szPath, sizeof(szPath), "%s/csgo/cfg/multiaddonmanager/multiaddonmanager.cfg", Plat_GetGameDirectory());
@@ -375,13 +375,12 @@ bool MultiAddonManager::ParseCfg()
 	if (!cfgFile.is_open())
 	{
 		Panic("Unable to open & execute config at \"%s\"\n");
-		return false;
+		return;
 	}
 
 	Message("Executing config\n");
 
 	std::string strCommand;
-	bool bChangedAddons = false;
 
 	while (std::getline(cfgFile, strCommand))
 	{
@@ -397,12 +396,6 @@ bool MultiAddonManager::ParseCfg()
 		ConVarRefAbstract cvarRef(pszCommand, true);
 		if (cvarRef.IsValidRef())
 		{
-			// We're running this in StartupServer now, and mm_extra_addons's callback calls RefreshAddons
-			// Relay that back to StartupServer to skip refreshing a second time
-			// Normally this would be unconditional but you never know if someone does a typo in their cfg...
-			if (cvarRef.GetConVarData() == mm_extra_addons.GetConVarData())
-				bChangedAddons = true;
-
 			cvarRef.SetString(args.Arg(1));
 			continue;
 		}
@@ -414,8 +407,6 @@ bool MultiAddonManager::ParseCfg()
 			cmdRef.Dispatch(ctx, args);
 		}
 	}
-
-	return bChangedAddons;
 }
 
 void MultiAddonManager::BuildAddonPath(const char *pszAddon, char *buf, size_t len, bool bLegacy = false)
@@ -591,7 +582,6 @@ void MultiAddonManager::OnSteamServersConnected(SteamServersConnected_t *pResult
 	Message("Logged on to Steam\n");
 
 	m_bSteamConnected = true;
-	RefreshAddons();
 
 	if (m_PreSteamLoginDownloads.empty())
 		return;
@@ -969,8 +959,7 @@ KHook::Return<void> MultiAddonManager::Hook_StartupServer_Post(INetworkServerSer
 	// This has to be done here to replicate the behavior on clients, where they mount addons in the string order
 	// So if the current map is ID 1 and extra addons are IDs 2 and 3, they would be mounted in that order with ID 3 at the top
 	// Note that the actual map VPK(s) and any sub-maps like team_select will be even higher, but those usually don't contain any assets that concern us
-	if (!ParseCfg())
-		RefreshAddons();
+	RefreshAddons();
 
 	return {KHook::Action::Ignore};
 }

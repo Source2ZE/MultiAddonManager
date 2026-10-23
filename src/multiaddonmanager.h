@@ -131,7 +131,7 @@ public: //hooks
 	KHook::Return<uint64> Hook_ScriptGetAddon();
 
 	// Returns true if mm_extra_addons was touched
-	bool ParseCfg();
+	void ParseCfg();
 	void BuildAddonPath(const char *pszAddon, char *buf, size_t len, bool bLegacy);
 	bool MountAddon(const char *pszAddon, bool bAddToTail);
 	bool UnmountAddon(const char *pszAddon);
