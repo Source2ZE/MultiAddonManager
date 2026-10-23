@@ -966,11 +966,10 @@ KHook::Return<void> MultiAddonManager::Hook_StartupServer_Post(INetworkServerSer
 	g_pFullFileSystem->RemoveSearchPath("", "GAME");
 	g_pFullFileSystem->RemoveSearchPath("", "DEFAULT_WRITE_PATH");
 
-	// This has to be done here to replicate the behavior on clients, where they mount addons in the string order
-	// So if the current map is ID 1 and extra addons are IDs 2 and 3, they would be mounted in that order with ID 3 at the top
-	// Note that the actual map VPK(s) and any sub-maps like team_select will be even higher, but those usually don't contain any assets that concern us
-	if (!ParseCfg())
-		RefreshAddons();
+	// Don't re-parse the config here: the cvar callbacks replace the addon lists wholesale,
+	// which would drop addons that other plugins added through the API since Load()
+	// (e.g. AddAddon() in AllPluginsLoaded). The config was already applied in Load().
+	RefreshAddons();
 
 	return {KHook::Action::Ignore};
 }
