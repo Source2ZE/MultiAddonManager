@@ -127,7 +127,7 @@ public: //hooks
 	KHook::Return<bool> Hook_CanHLTVClientConnect(IServerGameClients *pThis, int index, const CSteamID &steamID, int *pRejectReason);
 	KHook::Return<bool> Hook_SendNetMessage(CServerSideClientBase *pClient, const CNetMessage *pData, NetChannelBufType_t bufType);
 	KHook::Return<void> Hook_SetPendingHostStateRequest(CHostStateMgr *pMgrDoNotUse, CHostStateRequest *pRequest);
-	KHook::Return<void> Hook_ReplyConnection(INetworkGameServer *pThis, CServerSideClient *pClient);
+	KHook::Return<void> Hook_ReplyConnection(CNetworkGameServerBase *pThis, CServerSideClient *pClient);
 	KHook::Return<uint64> Hook_ScriptGetAddon();
 
 	// Returns true if mm_extra_addons was touched
@@ -184,7 +184,7 @@ private:
 	KHook::Virtual<CServerSideClientBase, bool, const CNetMessage *, NetChannelBufType_t> m_hookSendNetMessage_ServerSideClient;
 	KHook::Virtual<CServerSideClientBase, bool, const CNetMessage *, NetChannelBufType_t> m_hookSendNetMessage_HLTVClient;
 	KHook::Function<void, CHostStateMgr *, CHostStateRequest *> m_hookSetPendingHostStateRequest;
-	KHook::Function<void, INetworkGameServer *, CServerSideClient *> m_hookReplyConnection;
+	KHook::Function<void, CNetworkGameServerBase *, CServerSideClient *> m_hookReplyConnection;
 	KHook::Function<uint64> m_hookScriptGetAddon;
 
 	std::vector<AddonId> m_ImportantDownloads; // Important addon downloads that will trigger a map reload when finished
