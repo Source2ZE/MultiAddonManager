@@ -29,6 +29,7 @@
 #include "engine2/ivengineserver2.h"
 #include "engine2/networkgameserverbase.h"
 #include "engine2/serversideclient.h"
+#include "engine2/hoststate.h"
 #include "khook.hpp"
 #include "utlvector.h"
 #include <deque>
@@ -127,6 +128,7 @@ public: //hooks
 	KHook::Return<bool> Hook_CanHLTVClientConnect(IServerGameClients *pThis, int index, const CSteamID &steamID, int *pRejectReason);
 	KHook::Return<bool> Hook_SendNetMessage(CServerSideClientBase *pClient, const CNetMessage *pData, NetChannelBufType_t bufType);
 	KHook::Return<void> Hook_SetPendingHostStateRequest(CHostStateMgr *pMgrDoNotUse, CHostStateRequest *pRequest);
+	KHook::Return<void> Hook_SwitchToLoop(IEngineServiceMgr* pThis, const char* pszLoopModeName, KeyValues* pkvLoopOptions, uint32 nId, const char* pszAddonName, bool);
 	KHook::Return<void> Hook_ReplyConnection(CNetworkGameServerBase *pThis, CServerSideClient *pClient);
 	KHook::Return<uint64> Hook_ScriptGetAddon();
 
@@ -137,15 +139,12 @@ public: //hooks
 	bool UnmountAddon(const char *pszAddon);
 	bool AddAddon(const char *pszAddon, bool bRefresh = false);
 	bool RemoveAddon(const char *pszAddon, bool bRefresh = false);
-	bool IsAddonMounted(const char *pszAddon, bool bCheckWorkshopMap = false) { return Contains(m_MountedAddons, AddonId(pszAddon)) || (bCheckWorkshopMap && GetCurrentWorkshopMap() == AddonId(pszAddon));  }
+	bool IsAddonMounted(const char *pszAddon, bool bCheckWorkshopMap = false) { return Contains(m_MountedAddons, AddonId(pszAddon)) || (bCheckWorkshopMap && m_CurrentWorkshopMap == AddonId(pszAddon));  }
 	bool DownloadAddon(const char *pszAddon, bool bImportant = false, bool bForce = false);
 	void PrintDownloadProgress();
 	void RefreshAddons(bool bReloadMap = false);
 	void ClearAddons();
 	void ReloadMap();
-	AddonId GetCurrentWorkshopMap() { return m_sCurrentWorkshopMap; }
-	void SetCurrentWorkshopMap(const char *pszWorkshopID) { m_sCurrentWorkshopMap = pszWorkshopID; }
-	void ClearCurrentWorkshopMap() { m_sCurrentWorkshopMap.clear(); }
 
 	bool HasUGCConnection();
 	void AddClientAddon(const char *pszAddon, uint64 steamID64 = 0, bool bRefresh = false);
@@ -183,6 +182,7 @@ private:
 	KHook::Virtual<IGameEventManager2, bool, IGameEvent *, bool> m_hookFireEvent;
 	KHook::Virtual<CServerSideClientBase, bool, const CNetMessage *, NetChannelBufType_t> m_hookSendNetMessage_ServerSideClient;
 	KHook::Virtual<CServerSideClientBase, bool, const CNetMessage *, NetChannelBufType_t> m_hookSendNetMessage_HLTVClient;
+	KHook::Virtual<IEngineServiceMgr, void, const char*, KeyValues*, uint32, const char*, bool> m_hookSwitchToLoop;
 	KHook::Function<void, CHostStateMgr *, CHostStateRequest *> m_hookSetPendingHostStateRequest;
 	KHook::Function<void, CNetworkGameServerBase *, CServerSideClient *> m_hookReplyConnection;
 	KHook::Function<uint64> m_hookScriptGetAddon;
@@ -206,7 +206,7 @@ private:
 	bool m_bSteamConnected = false;
 
 	// Used when reloading current map
-	AddonId m_sCurrentWorkshopMap;
+	AddonId m_CurrentWorkshopMap;
 
 	std::set<uint64> m_TimedOutClients;
 };

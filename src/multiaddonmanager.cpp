@@ -49,7 +49,7 @@ void Message(const char *msg, ...)
 	char buf[1024] = {};
 	V_vsnprintf(buf, sizeof(buf) - 1, msg, args);
 
-	LoggingSystem_Log(2, LS_MESSAGE, Color(0, 255, 200), "[MultiAddonManager] %s", buf);
+	LoggingSystem_Log(2, LS_MESSAGE, Color(0, 255, 200, 255), "[MultiAddonManager] %s", buf);
 
 	va_end(args);
 }
@@ -211,6 +211,7 @@ MultiAddonManager::MultiAddonManager() :
 	m_hookFireEvent(&IGameEventManager2::FireEvent, this, &MultiAddonManager::Hook_FireEvent, nullptr),
 	m_hookSendNetMessage_ServerSideClient(&CServerSideClientBase::SendNetMessage, this, &MultiAddonManager::Hook_SendNetMessage, nullptr),
 	m_hookSendNetMessage_HLTVClient(&CServerSideClientBase::SendNetMessage, this, &MultiAddonManager::Hook_SendNetMessage, nullptr),
+	m_hookSwitchToLoop(&IEngineServiceMgr::SwitchToLoop, this, &MultiAddonManager::Hook_SwitchToLoop, nullptr),
 	m_hookSetPendingHostStateRequest(this, &MultiAddonManager::Hook_SetPendingHostStateRequest, nullptr),
 	m_hookReplyConnection(this, &MultiAddonManager::Hook_ReplyConnection, nullptr),
 	m_hookScriptGetAddon(this, &MultiAddonManager::Hook_ScriptGetAddon, nullptr)
@@ -228,7 +229,9 @@ bool MultiAddonManager::Load(PluginId id, ISmmAPI *ismm, char *error, size_t max
 	GET_V_IFACE_ANY(GetEngineFactory, g_pNetworkServerService, INetworkServerService, NETWORKSERVERSERVICE_INTERFACE_VERSION);
 	GET_V_IFACE_ANY(GetEngineFactory, g_pNetworkMessages, INetworkMessages, NETWORKMESSAGES_INTERFACE_VERSION);
 	GET_V_IFACE_ANY(GetEngineFactory, g_pGameEventSystem, IGameEventSystem, GAMEEVENTSYSTEM_INTERFACE_VERSION);
+	GET_V_IFACE_ANY(GetEngineFactory, g_pEngineServiceMgr, IEngineServiceMgr, ENGINESERVICEMGR_INTERFACE_VERSION);
 	GET_V_IFACE_ANY(GetFileSystemFactory, g_pFullFileSystem, IFileSystem, FILESYSTEM_INTERFACE_VERSION);
+	GET_V_IFACE_ANY(GetEngineFactory, g_pHostStateMgr, IHostStateMgr, HOSTSTATEMGR_INTERFACE_VERSION);
 
 	// Required to get the IMetamodListener events
 	g_SMAPI->AddListener( this, this );
@@ -298,6 +301,7 @@ bool MultiAddonManager::Load(PluginId id, ISmmAPI *ismm, char *error, size_t max
 	m_hookClientActive.Add(g_pSource2GameClients);
 	m_hookGameFrame.Add(g_pSource2Server);
 	m_hookStartupServer.Add(g_pNetworkServerService);
+	m_hookSwitchToLoop.Add(g_pEngineServiceMgr);
 	m_hookFireEvent.AddGlobal((IGameEventManager2*)&g_pGameEventManagerVTable);
 	m_hookSendNetMessage_ServerSideClient.AddGlobal((CServerSideClientBase*)&g_pServerSideClientVTable);
 	m_hookSendNetMessage_HLTVClient.AddGlobal((CServerSideClientBase*)&g_pHLTVClientVTable);
@@ -411,7 +415,7 @@ bool MultiAddonManager::MountAddon(const char *pszAddon, bool bAddToTail = false
 		return false;
 
 	std::vector<AddonId> serverMountedAddons;
-	StringToVector(this->m_sCurrentWorkshopMap.c_str(), serverMountedAddons);
+	StringToVector(this->m_CurrentWorkshopMap.c_str(), serverMountedAddons);
 	if (Contains(serverMountedAddons, AddonId(pszAddon)))
 	{
 		Message("%s: Addon %s is already mounted by the server\n", __func__, pszAddon);
@@ -623,10 +627,10 @@ void MultiAddonManager::ReloadMap()
 	// Using the concommand here as g_pEngineServer->ChangeLevel doesn't unmount workshop maps and we wanna be clean.
 	// See Hook_SetPendingHostStateRequest's comment for more details.
 	// Community maps are treated like workshop maps but they should still be loaded using changelevel
-	if (m_sCurrentWorkshopMap.empty() || g_pFullFileSystem->IsDirectory(m_sCurrentWorkshopMap.c_str(), "OFFICIAL_ADDONS"))
+	if (m_CurrentWorkshopMap.empty() || g_pFullFileSystem->IsDirectory(m_CurrentWorkshopMap.c_str(), "OFFICIAL_ADDONS"))
 		V_snprintf(cmd, sizeof(cmd), "changelevel %s", GetGlobals()->mapname.ToCStr());
 	else
-		V_snprintf(cmd, sizeof(cmd), "host_workshop_map %s", m_sCurrentWorkshopMap.c_str());
+		V_snprintf(cmd, sizeof(cmd), "host_workshop_map %s", m_CurrentWorkshopMap.c_str());
 
 	g_pEngineServer->ServerCommand(cmd);
 }
@@ -851,8 +855,8 @@ void MultiAddonManager::GetClientAddons(std::vector<AddonId> &addons, uint64 ste
 {
 	addons.clear();
 	
-	if (!GetCurrentWorkshopMap().empty())
-		addons.push_back(GetCurrentWorkshopMap());
+	if (!m_CurrentWorkshopMap.empty())
+		addons.push_back(m_CurrentWorkshopMap);
 	// The list of mounted addons should never contain the workshop map.
 	addons.insert(addons.end(), m_MountedAddons.begin(), m_MountedAddons.end());
 	// Also make sure we don't have duplicates.
@@ -1016,6 +1020,7 @@ KHook::Return<void> MultiAddonManager::Hook_SetPendingHostStateRequest(CHostStat
 	// (which happens at the end of a map), the server-defined addon does not change.
 	// Also, host state requests coming from that function will always have "ChangeLevel" in its KV's name.
 	// We can use this information to always be aware of what the original addon is.
+	AddonId workhopMap = m_CurrentWorkshopMap;
 	
 	if (!pRequest->m_pKV)
 	{
@@ -1027,16 +1032,16 @@ KHook::Return<void> MultiAddonManager::Hook_SetPendingHostStateRequest(CHostStat
 		// Workshop map changes from end of match votes have null keyvalues
 		// ...and when such votes lead to reloading the CURRENT map, m_Addons will also be null, in which case we want to keep the workshop map unchanged
 		if (!pRequest->m_Addons.IsEmpty())
-			SetCurrentWorkshopMap(pRequest->m_Addons);
+			workhopMap = pRequest->m_Addons.Get();
 		else if (bValveMap) // Sadly this will include any workshop maps that share names with shipped Valve maps, but at this point there's no way to tell
-			ClearCurrentWorkshopMap();
+			workhopMap.clear();
 	}
 	else if (V_stricmp(pRequest->m_pKV->GetName(), "ChangeLevel"))
 	{
 		if (!V_stricmp(pRequest->m_pKV->GetName(), "map_workshop"))
-			SetCurrentWorkshopMap(pRequest->m_pKV->GetString("customgamemode", ""));
+			workhopMap = pRequest->m_pKV->GetString("customgamemode", "");
 		else
-			ClearCurrentWorkshopMap();
+			workhopMap.clear();
 	}
 
 	// Valve changed the way community maps (like de_dogtown) are loaded
@@ -1044,13 +1049,13 @@ KHook::Return<void> MultiAddonManager::Hook_SetPendingHostStateRequest(CHostStat
 	// So check if the addon is indeed one of the community maps and keep it, otherwise clients would error out due to missing assets
 	// Each map has its own folder under game/csgo_community_addons which is mounted as "OFFICIAL_ADDONS"
 	if (!pRequest->m_Addons.IsEmpty() && g_pFullFileSystem->IsDirectory(pRequest->m_Addons.String(), "OFFICIAL_ADDONS"))
-		SetCurrentWorkshopMap(pRequest->m_Addons);
+		workhopMap = pRequest->m_Addons.Get();
 
 	if (m_ExtraAddons.empty())
 		return {KHook::Action::Ignore};
 
 	// Rebuild the addon list. We always start with the original addon.
-	if (GetCurrentWorkshopMap().empty())
+	if (workhopMap.empty())
 	{
 		pRequest->m_Addons = VectorToString(m_ExtraAddons).c_str();
 	}
@@ -1058,10 +1063,26 @@ KHook::Return<void> MultiAddonManager::Hook_SetPendingHostStateRequest(CHostStat
 	{
 		// Don't add the same addon twice. Hopefully no server owner is diabolical enough to do things like `map de_dust2 customgamemode=1234,5678`.
 		std::vector<AddonId> newAddons = m_ExtraAddons;
-		RemoveValue(newAddons, GetCurrentWorkshopMap());
-		newAddons.insert(newAddons.begin(), GetCurrentWorkshopMap());
+		RemoveValue(newAddons, workhopMap);
+		newAddons.insert(newAddons.begin(), workhopMap);
 		pRequest->m_Addons = VectorToString(newAddons).c_str();
 	}
+
+	return {KHook::Action::Ignore};
+}
+
+KHook::Return<void> MultiAddonManager::Hook_SwitchToLoop(IEngineServiceMgr* pThis, const char* pszLoopModeName, KeyValues* pkvLoopOptions, uint32 nId, const char* pszAddonName, bool)
+{
+	if (V_stricmp(pszLoopModeName, "levelload"))
+		return {KHook::Action::Ignore};
+
+	std::string sLevelName = pkvLoopOptions->GetString("levelname");
+	std::string sLevelAddon = pkvLoopOptions->GetString("customgamemode");
+
+	m_CurrentWorkshopMap = sLevelAddon;
+
+	if (g_pFullFileSystem->IsDirectory(sLevelName.c_str(), "OFFICIAL_ADDONS"))
+		m_CurrentWorkshopMap = sLevelName;
 
 	return {KHook::Action::Ignore};
 }
@@ -1248,13 +1269,8 @@ KHook::Return<void> MultiAddonManager::Hook_ReplyConnection(CNetworkGameServerBa
 
 KHook::Return<uint64> MultiAddonManager::Hook_ScriptGetAddon()
 {
-	if (m_ExtraAddons.empty())
+	if (m_ExtraAddons.empty() || m_CurrentWorkshopMap.empty())
 		return {KHook::Action::Ignore};
 
-	uint64 iAddon = GetCurrentWorkshopMap();
-	
-	if (!iAddon)
-		return {KHook::Action::Ignore};
-
-	return {KHook::Action::Supersede, iAddon};
+	return {KHook::Action::Supersede, m_CurrentWorkshopMap};
 }
