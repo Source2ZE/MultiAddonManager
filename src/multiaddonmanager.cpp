@@ -715,7 +715,7 @@ CNetMessagePB<CNETMsg_SignonState> *GetAddonSignonStateMessage(const char *pszAd
 	if (!GetNetworkGameServer() || !GetGlobals())
 		return nullptr;
 
-	INetworkMessageInternal *pNetMsg = g_pNetworkMessages->FindNetworkMessagePartial("SignonState");
+	auto *pNetMsg = g_pNetworkMessages->FindNetworkMessagePartial("SignonState");
 	CNetMessagePB<CNETMsg_SignonState> *pMsg = pNetMsg->AllocateMessage()->ToPB<CNETMsg_SignonState>();
 	pMsg->set_spawn_count(GetGlobals()->serverCount);
 	pMsg->set_signon_state(SIGNONSTATE_CHANGELEVEL);
@@ -953,15 +953,14 @@ KHook::Return<void> MultiAddonManager::Hook_StartupServer_Post(INetworkServerSer
 
 KHook::Return<bool> MultiAddonManager::Hook_SendNetMessage(CServerSideClientBase *pClient, const CNetMessage *pData, NetChannelBufType_t bufType)
 {
-	NetMessageInfo_t* info = pData->GetNetMessage()->GetNetMessageInfo();
-
+	auto nMsgId = pData->GetNetMessage()->GetMessageId();
 	uint64 steamID64 = pClient->GetClientSteamID().ConvertToUint64();
 	ClientAddonInfo_t& clientInfo = g_ClientAddons[steamID64];
 
 	// If we are sending a message to the client, that means the client is still active.
 	clientInfo.lastActiveTime = Plat_FloatTime();
 
-	if (info->m_MessageId != net_SignonState || !g_pEngineServer->IsDedicatedServer())
+	if (nMsgId != net_SignonState || !g_pEngineServer->IsDedicatedServer())
 		return {KHook::Action::Ignore};
 
 	auto pMsg = const_cast<CNetMessage*>(pData)->ToPB<CNETMsg_SignonState>();
