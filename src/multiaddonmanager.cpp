@@ -131,7 +131,7 @@ constexpr const char *g_ReplyConnection_Sig = "48 8B C4 55 41 55 41 56";
 constexpr const char *g_ScriptGetAddon_Sig = "40 56 48 83 EC ? 48 8B 0D ? ? ? ? 48 8D 54 24";
 #else
 constexpr const char *g_HostStateRequest_Sig = "55 48 89 E5 41 56 41 55 41 54 49 89 F4 53 48 83 7F";
-constexpr const char *g_ReplyConnection_Sig = "55 41 B8 ? ? ? ? B9 ? ? ? ? 48 89 E5 41 57";
+constexpr const char *g_ReplyConnection_Sig = "55 41 B8 ? ? ? ? B9 ? ? ? ? 48 89 E5 41 57 41 56 48 8D 95";
 constexpr const char *g_ScriptGetAddon_Sig = "55 48 89 E5 41 55 41 54 48 8D 75 ? 53 48 83 EC ? 48 8D 05 ? ? ? ? 48 C7 45 ? ? ? ? ? 48 C7 45 ? ? ? ? ? 48 8B 38 48 8B 07 FF 90 ? ? ? ? 8B 55";
 #endif
 
@@ -710,13 +710,35 @@ bool MultiAddonManager::RemoveAddon(const char *pszAddon, bool bRefresh)
 	return true;
 }
 
+// 14197 (build 2000943) turned the network message handle into the plain
+// NetMessageInfo_t record itself - it no longer has a vtable - and moved
+// INetworkMessages::FindNetworkMessagePartial from slot 14 to slot 10.
+// The SDK still declares the old interface, so reach through the raw vtable
+// and record until it catches up.
+struct NetMessageInfo14197_t
+{
+	const char *m_pszName;
+	CNetMessage *(*m_pfnAllocate)();
+};
+
+static CNetMessage *AllocateNetMessageByPartialName(const char *szPartialName)
+{
+	using FindNetworkMessagePartialFn = INetworkMessageInternal *(*)(INetworkMessages *, const char *);
+	auto *pVtable = *reinterpret_cast<FindNetworkMessagePartialFn **>(g_pNetworkMessages);
+	auto *pInfo = reinterpret_cast<NetMessageInfo14197_t *>(
+		pVtable[10](g_pNetworkMessages, szPartialName));
+	return pInfo ? pInfo->m_pfnAllocate() : nullptr;
+}
+
 CNetMessagePB<CNETMsg_SignonState> *GetAddonSignonStateMessage(const char *pszAddon)
 {
 	if (!GetNetworkGameServer() || !GetGlobals())
 		return nullptr;
 
-	INetworkMessageInternal *pNetMsg = g_pNetworkMessages->FindNetworkMessagePartial("SignonState");
-	CNetMessagePB<CNETMsg_SignonState> *pMsg = pNetMsg->AllocateMessage()->ToPB<CNETMsg_SignonState>();
+	CNetMessage *pNetMsg = AllocateNetMessageByPartialName("SignonState");
+	if (!pNetMsg)
+		return nullptr;
+	CNetMessagePB<CNETMsg_SignonState> *pMsg = pNetMsg->ToPB<CNETMsg_SignonState>();
 	pMsg->set_spawn_count(GetGlobals()->serverCount);
 	pMsg->set_signon_state(SIGNONSTATE_CHANGELEVEL);
 	pMsg->set_addons(pszAddon ? pszAddon : "");
@@ -953,15 +975,15 @@ KHook::Return<void> MultiAddonManager::Hook_StartupServer_Post(INetworkServerSer
 
 KHook::Return<bool> MultiAddonManager::Hook_SendNetMessage(CServerSideClientBase *pClient, const CNetMessage *pData, NetChannelBufType_t bufType)
 {
-	NetMessageInfo_t* info = pData->GetNetMessage()->GetNetMessageInfo();
-
 	uint64 steamID64 = pClient->GetClientSteamID().ConvertToUint64();
 	ClientAddonInfo_t& clientInfo = g_ClientAddons[steamID64];
 
 	// If we are sending a message to the client, that means the client is still active.
 	clientInfo.lastActiveTime = Plat_FloatTime();
 
-	if (info->m_MessageId != net_SignonState || !g_pEngineServer->IsDedicatedServer())
+	// CNetMessage's own vtable is unchanged in 14197, so GetMessageId() is safe;
+	// the handle-based GetNetMessageInfo() path no longer exists.
+	if (pData->GetMessageId() != net_SignonState || !g_pEngineServer->IsDedicatedServer())
 		return {KHook::Action::Ignore};
 
 	auto pMsg = const_cast<CNetMessage*>(pData)->ToPB<CNETMsg_SignonState>();
