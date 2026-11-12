@@ -710,13 +710,39 @@ bool MultiAddonManager::RemoveAddon(const char *pszAddon, bool bRefresh)
 	return true;
 }
 
+struct NetMessageType_t
+{
+	const char *m_pszName;
+	CNetMessage *(*m_pfnAllocate)();
+};
+
+constexpr int g_iFindNetworkMessagePartialIndex = 10;
+
+CNetMessage *AllocateNetMessage(const char *pszPartialName)
+{
+	if (!g_pNetworkMessages)
+		return nullptr;
+
+	void **pVTable = *reinterpret_cast<void ***>(g_pNetworkMessages);
+	auto pfnFindPartial = reinterpret_cast<const NetMessageType_t *(*)(INetworkMessages *, const char *)>(pVTable[g_iFindNetworkMessagePartialIndex]);
+	const NetMessageType_t *pType = pfnFindPartial(g_pNetworkMessages, pszPartialName);
+
+	if (!pType || !pType->m_pszName || !pType->m_pfnAllocate || !V_stristr(pType->m_pszName, pszPartialName))
+		return nullptr;
+
+	return pType->m_pfnAllocate();
+}
+
 CNetMessagePB<CNETMsg_SignonState> *GetAddonSignonStateMessage(const char *pszAddon)
 {
 	if (!GetNetworkGameServer() || !GetGlobals())
 		return nullptr;
 
-	INetworkMessageInternal *pNetMsg = g_pNetworkMessages->FindNetworkMessagePartial("SignonState");
-	CNetMessagePB<CNETMsg_SignonState> *pMsg = pNetMsg->AllocateMessage()->ToPB<CNETMsg_SignonState>();
+	CNetMessage *pNetMsg = AllocateNetMessage("SignonState");
+	if (!pNetMsg)
+		return nullptr;
+
+	CNetMessagePB<CNETMsg_SignonState> *pMsg = pNetMsg->ToPB<CNETMsg_SignonState>();
 	pMsg->set_spawn_count(GetGlobals()->serverCount);
 	pMsg->set_signon_state(SIGNONSTATE_CHANGELEVEL);
 	pMsg->set_addons(pszAddon ? pszAddon : "");
@@ -953,15 +979,13 @@ KHook::Return<void> MultiAddonManager::Hook_StartupServer_Post(INetworkServerSer
 
 KHook::Return<bool> MultiAddonManager::Hook_SendNetMessage(CServerSideClientBase *pClient, const CNetMessage *pData, NetChannelBufType_t bufType)
 {
-	NetMessageInfo_t* info = pData->GetNetMessage()->GetNetMessageInfo();
-
 	uint64 steamID64 = pClient->GetClientSteamID().ConvertToUint64();
 	ClientAddonInfo_t& clientInfo = g_ClientAddons[steamID64];
 
 	// If we are sending a message to the client, that means the client is still active.
 	clientInfo.lastActiveTime = Plat_FloatTime();
 
-	if (info->m_MessageId != net_SignonState || !g_pEngineServer->IsDedicatedServer())
+	if (pData->GetMessageId() != net_SignonState || !g_pEngineServer->IsDedicatedServer())
 		return {KHook::Action::Ignore};
 
 	auto pMsg = const_cast<CNetMessage*>(pData)->ToPB<CNETMsg_SignonState>();
