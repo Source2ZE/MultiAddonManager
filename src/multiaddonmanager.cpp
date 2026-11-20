@@ -977,9 +977,20 @@ KHook::Return<bool> MultiAddonManager::Hook_SendNetMessage(CServerSideClientBase
 		if (addonsList.size() > 1)
 		{
 			// If there's more than one addon, ensure that it takes the first addon (which should be the workshop map or the first custom addon)
-			pMsg->set_addons(addonsList.front().c_str());
+			AddonId addon = addonsList.front();
+
+			// Except for community maps: their addon is under game/csgo_community_addons (OFFICIAL_ADDONS) and ships with the game,
+			// so a message naming only that addon makes the client change level in place with it alone, unmounting every other addon,
+			// and it never reconnects through ReplyConnection to get the rest. Addons the client is recorded as having are not sent
+			// again after that (see below), so if that is the case for the next addon, name it instead: the client then reconnects
+			// for it as it does for a workshop map, and ReplyConnection sends the full list. Otherwise the missing addons follow the
+			// in-place change as usual.
+			if (g_pFullFileSystem->IsDirectory(addon.c_str(), "OFFICIAL_ADDONS") && Contains(clientInfo.downloadedAddons, addonsList[1]))
+				addon = addonsList[1];
+
+			pMsg->set_addons(addon.c_str());
 			// Since the client will download the addon contained inside this messsage, we might as well add it to the list of client's downloaded addons.
-			clientInfo.currentPendingAddon = addonsList.front();
+			clientInfo.currentPendingAddon = addon;
 		}
 		else if (addonsList.size() == 1)
 		{
